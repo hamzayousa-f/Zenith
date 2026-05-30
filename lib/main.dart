@@ -60,6 +60,7 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
 
   String? _interceptedAppName;
   String? _interceptedPackageName;
+  String? _violationType;
   bool _isShieldActive = false;
 
   final List<Widget> _pages = [
@@ -79,16 +80,18 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
         _activateShield(
           payload['appName'].toString(),
           payload['packageName'].toString(),
+          payload['violationType']?.toString() ?? 'hard_block',
         );
       }
     });
   }
 
-  void _activateShield(String appLabel, String packageID) {
+  void _activateShield(String appLabel, String packageID, String violation) {
     if (_isShieldActive) return;
     setState(() {
       _interceptedAppName = appLabel;
       _interceptedPackageName = packageID;
+      _violationType = violation;
       _isShieldActive = true;
     });
   }
@@ -98,10 +101,10 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
       _isShieldActive = false;
       _interceptedAppName = null;
       _interceptedPackageName = null;
+      _violationType = null;
     });
 
     try {
-      // Command Kotlin layer to mark this app as allowed and open it directly
       await _channel.invokeMethod('launchTargetApp', {
         'packageName': targetPackage,
       });
@@ -139,11 +142,13 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
 
         if (_isShieldActive &&
             _interceptedAppName != null &&
-            _interceptedPackageName != null)
+            _interceptedPackageName != null &&
+            _violationType != null)
           Positioned.fill(
             child: LiquidShieldOverlay(
               appName: _interceptedAppName!,
               packageName: _interceptedPackageName!,
+              violationType: _violationType!,
               onDismiss: (pkg) => _handleIntentBypassRelease(pkg),
             ),
           ),

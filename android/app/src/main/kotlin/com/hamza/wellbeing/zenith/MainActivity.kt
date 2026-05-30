@@ -26,7 +26,7 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.hamza.wellbeing.zenith/usage"
     private var blockerHandler: Handler? = null
         private var blockedAppsSet = HashSet<String>()
-        private var appLimitsMap = HashMap<String, Long>() // Package name vs Limit in Milliseconds
+        private var appLimitsMap = HashMap<String, Long>()
         private var temporarilyAllowedApps = HashMap<String, Long>()
         private var channelInstance: MethodChannel? = null
 
@@ -64,7 +64,6 @@ class MainActivity: FlutterActivity() {
                             val limits = call.argument<Map<String, Int>>("limits") ?: mapOf()
                             appLimitsMap.clear()
                             for ((key, value) in limits) {
-                                // Convert minutes sent from Flutter to milliseconds
                                 appLimitsMap[key] = value.toLong() * 60 * 1000
                             }
                             startBlockerEngineLoop()
@@ -73,6 +72,7 @@ class MainActivity: FlutterActivity() {
                         "launchTargetApp" -> {
                             val pkgName = call.argument<String>("packageName") ?: ""
                             if (pkgName.isNotEmpty()) {
+                                // Grant 10 minutes temporary bypass pass
                                 temporarilyAllowedApps[pkgName] = System.currentTimeMillis() + (10 * 60 * 1000)
                                 val launchIntent = packageManager.getLaunchIntentForPackage(pkgName)
                                 if (launchIntent != null) {
@@ -111,10 +111,8 @@ class MainActivity: FlutterActivity() {
                         }
                     }
 
-                    // Native recovery for explicit duration allowance maps
                     val limitsJson = sharedPrefs.getString("flutter.app_limits_minutes", null)
                     if (limitsJson != null) {
-                        // Approximate inline string parser split mapping for safe thread load
                         val clean = limitsJson.replace("{", "").replace("}", "").replace("\"", "")
                         if (clean.isNotEmpty()) {
                             val pairs = clean.split(",")
@@ -139,15 +137,19 @@ class MainActivity: FlutterActivity() {
                             val currentTopPackage = getTopPackageName()
                             val currentTime = System.currentTimeMillis()
 
-                            // Calculate the daily usage accumulation for the currently running app package
                             val dailyStatsMap = getTodayUsageMap()
                             val accumulatedTime = dailyStatsMap[currentTopPackage] ?: 0L
                             val allowedLimit = appLimitsMap[currentTopPackage] ?: Long.MAX_VALUE
 
-                            // Intercept if explicitly blocked OR if it exceeds the active screentime limit threshold
-                            if (blockedAppsSet.contains(currentTopPackage) || accumulatedTime > allowedLimit) {
+                            val isExplicitlyBlocked = blockedAppsSet.contains(currentTopPackage)
+                            val isLimitExceeded = accumulatedTime > allowedLimit
+
+                            if (isExplicitlyBlocked || isLimitExceeded) {
                                 val allowedUntil = temporarilyAllowedApps[currentTopPackage] ?: 0L
-                                if (currentTime > allowedUntil) {
+
+                                // CRITICAL FIX: If the app has crossed its daily allowance threshold,
+                                // bypass mechanisms are entirely ignored to prevent loops on overused apps.
+                                if (currentTime > allowedUntil || isLimitExceeded) {
                                     val pm = packageManager
                                     var appLabel = currentTopPackage
                                     try {
@@ -160,11 +162,17 @@ class MainActivity: FlutterActivity() {
                                     }
                                     startActivity(intent)
 
-                                    val payload = mapOf("appName" to appLabel, "packageName" to currentTopPackage)
+                                    // Pass along the precise type of block violation
+                                    val violationType = if (isLimitExceeded) "limit_exceeded" else "hard_block"
+                                    val payload = mapOf(
+                                        "appName" to appLabel,
+                                        "packageName" to currentTopPackage,
+                                        "violationType" to violationType
+                                    )
                                     Handler(Looper.getMainLooper()).post { channelInstance?.invokeMethod("triggerNativeShield", payload) }
                                 }
                             }
-                            blockerHandler?.postDelayed(this, 600)
+                            blockerHandler?.postDelayed(this, 500)
                         }
                     })
             }

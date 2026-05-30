@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class LiquidShieldOverlay extends StatefulWidget {
   final String appName;
   final String packageName;
+  final String violationType; // 'hard_block' or 'limit_exceeded'
   final Function(String) onDismiss;
 
   const LiquidShieldOverlay({
     super.key,
     required this.appName,
     required this.packageName,
+    required this.violationType,
     required this.onDismiss,
   });
 
@@ -22,10 +25,12 @@ class _LiquidShieldOverlayState extends State<LiquidShieldOverlay>
   late AnimationController _liquidController;
   int _countdown = 5;
   bool _canDismiss = false;
+  late bool _isLimitExceeded;
 
   @override
-  void initState() {
+  void InitState() {
     super.initState();
+    _isLimitExceeded = widget.violationType == 'limit_exceeded';
 
     _slideController = AnimationController(
       vsync: this,
@@ -34,10 +39,36 @@ class _LiquidShieldOverlayState extends State<LiquidShieldOverlay>
 
     _liquidController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 5),
+      duration: Duration(seconds: _isLimitExceeded ? 1 : 5),
     )..forward();
 
-    _startCountdown();
+    if (_isLimitExceeded) {
+      _canDismiss = true;
+    } else {
+      _startCountdown();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _isLimitExceeded = widget.violationType == 'limit_exceeded';
+
+    _slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..forward();
+
+    _liquidController = AnimationController(
+      vsync: this,
+      duration: Duration(seconds: _isLimitExceeded ? 1 : 5),
+    )..forward();
+
+    if (_isLimitExceeded) {
+      _canDismiss = true;
+    } else {
+      _startCountdown();
+    }
   }
 
   void _startCountdown() async {
@@ -72,14 +103,18 @@ class _LiquidShieldOverlayState extends State<LiquidShieldOverlay>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.shield_rounded,
-                color: Color(0xFFEF4444),
+              Icon(
+                _isLimitExceeded
+                    ? Icons.lock_clock_rounded
+                    : Icons.shield_rounded,
+                color: const Color(0xFFEF4444),
                 size: 54,
               ),
               const SizedBox(height: 16),
               Text(
-                'Focus Rule Active: ${widget.appName}',
+                _isLimitExceeded
+                    ? 'Daily Limit Blown'
+                    : 'Focus Rule Active: ${widget.appName}',
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -88,10 +123,16 @@ class _LiquidShieldOverlayState extends State<LiquidShieldOverlay>
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Do you really need to open this app?\nBreathe for 5 seconds.',
+              Text(
+                _isLimitExceeded
+                    ? 'You have already spent your allowed allocation running ${widget.appName} today. Access is locked.'
+                    : 'Do you really need to open this app?\nBreathe for 5 seconds.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 15, height: 1.5),
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 15,
+                  height: 1.5,
+                ),
               ),
               const SizedBox(height: 48),
 
@@ -101,18 +142,24 @@ class _LiquidShieldOverlayState extends State<LiquidShieldOverlay>
                   return CustomPaint(
                     size: const Size(160, 220),
                     painter: GlassLiquidPainter(
-                      progress: _liquidController.value,
+                      progress: _isLimitExceeded
+                          ? 1.0
+                          : _liquidController.value,
                     ),
                     child: SizedBox(
                       width: 160,
                       height: 220,
                       child: Center(
                         child: Text(
-                          _canDismiss ? '✓' : '$_countdown',
-                          style: const TextStyle(
+                          _isLimitExceeded
+                              ? '✕'
+                              : (_canDismiss ? '✓' : '$_countdown'),
+                          style: TextStyle(
                             fontSize: 44,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _isLimitExceeded
+                                ? const Color(0xFFEF4444)
+                                : Colors.white,
                             fontFamily: 'JetBrains Mono',
                           ),
                         ),
@@ -125,21 +172,30 @@ class _LiquidShieldOverlayState extends State<LiquidShieldOverlay>
 
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _canDismiss
-                      ? const Color(0xFF10B981)
-                      : Colors.white10,
+                  backgroundColor: _isLimitExceeded
+                      ? Colors.white10
+                      : (_canDismiss
+                            ? const Color(0xFF10B981)
+                            : Colors.white10),
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(200, 52),
+                  minimumSize: const Size(220, 52),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                   elevation: 0,
                 ),
-                onPressed: _canDismiss
-                    ? () => widget.onDismiss(widget.packageName)
-                    : null,
+                onPressed: () {
+                  if (_isLimitExceeded) {
+                    // Force exit back out straight to Android launcher screen layout
+                    SystemNavigator.pop();
+                  } else if (_canDismiss) {
+                    widget.onDismiss(widget.packageName);
+                  }
+                },
                 child: Text(
-                  _canDismiss ? 'Continue Intentionally' : 'Locked',
+                  _isLimitExceeded
+                      ? 'Return to Desktop'
+                      : (_canDismiss ? 'Continue Intentionally' : 'Locked'),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
