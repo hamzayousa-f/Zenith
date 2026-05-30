@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/dashboard/presentation/dashboard_view.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,14 +56,9 @@ class MainLayoutBridge extends StatefulWidget {
 class _MainLayoutBridgeState extends State<MainLayoutBridge> {
   int _currentIndex = 0;
 
-  // Placeholder views for our feature-first directories
+  // Feature views hooked into the layout bridge controller
   final List<Widget> _pages = [
-    const Center(
-      child: Text(
-        '📊 Dashboard Feature Layer Active',
-        style: TextStyle(fontSize: 16, color: Colors.white70),
-      ),
-    ),
+    const DashboardView(), // Swapped static text for live tracking view
     const Center(
       child: Text(
         '📈 Analytics View Layer Active',
