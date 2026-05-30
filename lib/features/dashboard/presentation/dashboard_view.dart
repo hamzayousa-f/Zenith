@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/usage_service.dart';
+import 'widgets/screentime_donut_chart.dart';
 
 class DashboardView extends StatefulWidget {
   const DashboardView({super.key});
@@ -8,248 +11,231 @@ class DashboardView extends StatefulWidget {
   State<DashboardView> createState() => _DashboardViewState();
 }
 
-class _DashboardViewState extends State<DashboardView>
-    with WidgetsBindingObserver {
+class _DashboardViewState extends State<DashboardView> {
   final UsageService _usageService = UsageService();
-  bool _hasPermission = false;
   bool _isLoading = true;
-  List<UsageAppModel> _usageList = [];
+  Duration _totalScreentime = Duration.zero;
+  final Duration _dailyGoal = const Duration(
+    hours: 4,
+  ); // Default reference threshold mark
+
+  int _activeBlocksCount = 0;
+  int _activeQuotasCount = 0;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _checkAppStatus();
+    _loadDashboardMetrics();
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _checkAppStatus();
-    }
-  }
-
-  Future<void> _checkAppStatus() async {
+  Future<void> _loadDashboardMetrics() async {
     setState(() => _isLoading = true);
+
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> blockedApps = prefs.getStringList('blocked_apps') ?? [];
+    final String savedLimitsRaw = prefs.getString('app_limits_minutes') ?? '{}';
+
+    int quotaCount = 0;
+    try {
+      final Map<String, dynamic> decoded = jsonDecode(savedLimitsRaw);
+      quotaCount = decoded.keys.length;
+    } catch (_) {}
+
     final bool permitted = await _usageService.checkPermission();
+    Duration calculatedTotal = Duration.zero;
 
     if (permitted) {
-      final List<UsageAppModel> data = await _usageService.getDailyAppUsage();
-      setState(() {
-        _hasPermission = true;
-        _usageList = data;
-        _isLoading = false;
-      });
-    } else {
-      setState(() {
-        _hasPermission = false;
-        _isLoading = false;
-      });
+      final List<UsageAppModel> usageData = await _usageService
+          .getDailyAppUsage();
+      for (var app in usageData) {
+        calculatedTotal += app.totalForegroundTime;
+      }
     }
+
+    setState(() {
+      _totalScreentime = calculatedTotal;
+      _activeBlocksCount = blockedApps.length;
+      _activeQuotasCount = quotaCount;
+      _isLoading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(
-            strokeWidth: 3,
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B5CF6)),
-          ),
-        ),
-      );
-    }
-
-    if (!_hasPermission) {
-      return Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.gpp_maybe_rounded,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Usage Access Required',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'To calculate daily screen limits and analyze your application timelines, Zenith requires native system usage access.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, height: 1.5),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: () async {
-                      await _usageService.openPermissionSettings();
-                    },
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                    label: const Text(
-                      'Grant System Permission',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
+      return const Center(child: CircularProgressIndicator(strokeWidth: 3));
     }
 
     return Scaffold(
       body: RefreshIndicator(
-        onRefresh: _checkAppStatus,
+        onRefresh: _loadDashboardMetrics,
         color: Theme.of(context).colorScheme.primary,
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.all(24),
-              sliver: SliverToBoxAdapter(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Zenith Dashboard',
-                      style: Theme.of(context).textTheme.headlineLarge,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Welcome Header
+              Text(
+                'Zenith App',
+                style: Theme.of(context).textTheme.headlineLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Your digital awareness hub.',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 40),
+
+              // Central Donut Graphic Element
+              ScreentimeDonutChart(
+                totalTime: _totalScreentime,
+                dailyGoal: _dailyGoal,
+              ),
+              const SizedBox(height: 48),
+
+              // Status Summary Title
+              const Text(
+                'Active Rules Overview',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Metric Summary Cards
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      context,
+                      title: 'Hard Blocks',
+                      value: '$_activeBlocksCount',
+                      subtitle: 'Apps fully restricted',
+                      icon: Icons.gpp_maybe_outlined,
+                      accentColor: Theme.of(context).colorScheme.error,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Realtime tracking tracking live system metrics.',
-                      style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildMetricCard(
+                      context,
+                      title: 'Time Caps',
+                      value: '$_activeQuotasCount',
+                      subtitle: 'Active daily limits',
+                      icon: Icons.av_timer_rounded,
+                      accentColor: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 32),
+
+              // Tip Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.02)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.lightbulb_outline,
+                      color: Theme.of(context).colorScheme.secondary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Focus Tip',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _totalScreentime > _dailyGoal
+                                ? 'You have passed your target recommendation. Time to put down the screen!'
+                                : 'Excellent pace. Keep staying intentional with your focus cycles today.',
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-            _usageList.isEmpty
-                ? const SliverFillRemaining(
-                    child: Center(
-                      child: Text(
-                        'No app usage logs detected for today yet.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  )
-                : SliverPadding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final app = _usageList[index];
-                        final int hours = app.totalForegroundTime.inHours;
-                        final int minutes = app.totalForegroundTime.inMinutes
-                            .remainder(60);
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.surface,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.03),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: app.iconBytes != null
-                                    ? Image.memory(
-                                        app.iconBytes!,
-                                        width: 38,
-                                        height: 38,
-                                        fit: BoxFit.cover,
-                                      )
-                                    : Container(
-                                        width: 38,
-                                        height: 38,
-                                        color: Colors.white10,
-                                        child: const Icon(
-                                          Icons.android,
-                                          size: 20,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      app.appName, // Live system readable display name
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 15,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      app.packageName,
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 11,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Text(
-                                hours > 0
-                                    ? '${hours}h ${minutes}m'
-                                    : '${minutes}m',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  fontFamily: 'JetBrains Mono',
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }, childCount: _usageList.length),
-                    ),
-                  ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildMetricCard(
+    BuildContext context, {
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required Color accentColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.02)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(icon, color: accentColor, size: 22),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontFamily: 'JetBrains Mono',
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: const TextStyle(color: Colors.grey, fontSize: 11),
+          ),
+        ],
       ),
     );
   }
