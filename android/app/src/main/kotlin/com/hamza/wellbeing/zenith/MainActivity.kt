@@ -4,6 +4,7 @@ import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -30,14 +31,19 @@ class MainActivity: FlutterActivity() {
         private var temporarilyAllowedApps = HashMap<String, Long>()
         private var channelInstance: MethodChannel? = null
 
+            // High-performance static memory cache for metadata and icons
+            companion object {
+                private val appLabelCache = HashMap<String, String>()
+                private val appIconCache = HashMap<String, String>()
+                private val dynamicRegistry = HashMap<String, ApplicationInfo>()
+            }
+
             override fun onCreate(savedInstanceState: Bundle?) {
                 super.onCreate(savedInstanceState)
                 loadBlockedAppsFromNativeStorage()
-
-                // Start the automated midnight reset scheduler routine
                 MidnightResetReceiver.scheduleMidnightReset(this)
 
-                if (blockedAppsSet.isNotEmpty() || appLimitsMap.isNotEmpty()) {
+                if (hasUsageStatsPermission() && (blockedAppsSet.isNotEmpty() || appLimitsMap.isNotEmpty())) {
                     startBlockerEngineLoop()
                 }
             }
@@ -50,19 +56,24 @@ class MainActivity: FlutterActivity() {
                     when (call.method) {
                         "checkUsagePermission" -> result.success(hasUsageStatsPermission())
                         "openPermissionSettings" -> {
-                            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
                             result.success(true)
                         }
                         "checkOverlayPermission" -> result.success(Settings.canDrawOverlays(this))
                         "openOverlaySettings" -> {
-                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
                             result.success(true)
                         }
                         "syncBlockedApps" -> {
-                            val appsList = call.argument<List<String>>("apps") ?: listOf()
-                            blockedAppsSet = HashSet(appsList)
-                            startBlockerEngineLoop()
-                            result.success(true)
+                            blockedAppsSet = HashSet(call.argument<List<String>>("apps") ?: listOf())
+                            if (hasUsageStatsPermission()) startBlockerEngineLoop()
+                                result.success(true)
                         }
                         "syncAppLimits" -> {
                             val limits = call.argument<Map<String, Int>>("limits") ?: mapOf()
@@ -70,8 +81,8 @@ class MainActivity: FlutterActivity() {
                             for ((key, value) in limits) {
                                 appLimitsMap[key] = value.toLong() * 60 * 1000
                             }
-                            startBlockerEngineLoop()
-                            result.success(true)
+                            if (hasUsageStatsPermission()) startBlockerEngineLoop()
+                                result.success(true)
                         }
                         "launchTargetApp" -> {
                             val pkgName = call.argument<String>("packageName") ?: ""
@@ -89,8 +100,32 @@ class MainActivity: FlutterActivity() {
                             }
                         }
                         "getDailyAppUsage" -> {
-                            if (hasUsageStatsPermission()) result.success(fetchDailyUsageData())
-                                else result.error("PERMISSION_DENIED", "Permission denied.", null)
+                            if (hasUsageStatsPermission()) {
+                                Thread {
+                                    // 1. Process usage records safely on worker background thread
+                                    val rawStats = fetchRawUsageMap()
+
+                                    // 2. Refresh basic app listing registry safely in background if empty
+                                    if (dynamicRegistry.isEmpty()) {
+                                        try {
+                                            val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                                            for (app in installedApps) {
+                                                dynamicRegistry[app.packageName] = app
+                                            }
+                                        } catch (e: Exception) {}
+                                    }
+
+                                    // 3. Resolve metadata details using our cache on the worker thread safely!
+                                    val processedData = resolveAppDetailsWithMemoryCache(rawStats)
+
+                                    // 4. Send the fully constructed data back to Flutter instantly on Main Thread
+                                    Handler(Looper.getMainLooper()).post {
+                                        result.success(processedData)
+                                    }
+                                }.start()
+                            } else {
+                                result.success(emptyList<Map<String, Any>>())
+                            }
                         }
                         else -> result.notImplemented()
                     }
@@ -137,25 +172,34 @@ class MainActivity: FlutterActivity() {
                     blockerHandler = Handler(Looper.getMainLooper())
                     blockerHandler?.post(object : Runnable {
                         override fun run() {
+                            if (!hasUsageStatsPermission()) {
+                                blockerHandler?.postDelayed(this, 1000)
+                                return
+                            }
+
                             val currentTopPackage = getTopPackageName()
                             val currentTime = System.currentTimeMillis()
-
                             val dailyStatsMap = getTodayUsageMap()
                             val accumulatedTime = dailyStatsMap[currentTopPackage] ?: 0L
                             val allowedLimit = appLimitsMap[currentTopPackage] ?: Long.MAX_VALUE
-
                             val isExplicitlyBlocked = blockedAppsSet.contains(currentTopPackage)
                             val isLimitExceeded = accumulatedTime > allowedLimit
 
                             if (isExplicitlyBlocked || isLimitExceeded) {
                                 val allowedUntil = temporarilyAllowedApps[currentTopPackage] ?: 0L
                                 if (currentTime > allowedUntil || isLimitExceeded) {
-                                    val pm = packageManager
                                     var appLabel = currentTopPackage
-                                    try {
-                                        val appInfo = pm.getApplicationInfo(currentTopPackage, 0)
-                                        appLabel = pm.getApplicationLabel(appInfo).toString()
-                                    } catch (e: Exception) {}
+                                    synchronized(appLabelCache) {
+                                        if (appLabelCache.containsKey(currentTopPackage)) {
+                                            appLabel = appLabelCache[currentTopPackage] ?: currentTopPackage
+                                        } else {
+                                            try {
+                                                val appInfo = packageManager.getApplicationInfo(currentTopPackage, 0)
+                                                appLabel = packageManager.getApplicationLabel(appInfo).toString()
+                                                appLabelCache[currentTopPackage] = appLabel
+                                            } catch (e: Exception) {}
+                                        }
+                                    }
 
                                     val intent = Intent(this@MainActivity, MainActivity::class.java).apply {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -168,7 +212,7 @@ class MainActivity: FlutterActivity() {
                                         "packageName" to currentTopPackage,
                                         "violationType" to violationType
                                     )
-                                    Handler(Looper.getMainLooper()).post { channelInstance?.invokeMethod("triggerNativeShield", payload) }
+                                    channelInstance?.invokeMethod("triggerNativeShield", payload)
                                 }
                             }
                             blockerHandler?.postDelayed(this, 500)
@@ -181,8 +225,7 @@ class MainActivity: FlutterActivity() {
                 val time = System.currentTimeMillis()
                 val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 10000, time)
                 if (stats != null && stats.isNotEmpty()) {
-                    val sortedStats = stats.sortedByDescending { it.lastTimeUsed }
-                    return sortedStats[0].packageName
+                    return stats.sortedByDescending { it.lastTimeUsed }[0].packageName
                 }
                 return ""
             }
@@ -204,22 +247,8 @@ class MainActivity: FlutterActivity() {
                 return usageMap
             }
 
-            private fun drawableToBase64(drawable: Drawable): String {
-                val bitmap = if (drawable is BitmapDrawable) drawable.bitmap else {
-                    val bmp = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(bmp)
-                    drawable.setBounds(0, 0, canvas.width, canvas.height)
-                    drawable.draw(canvas)
-                    bmp
-                }
-                val outputStream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream)
-                return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-            }
-
-            private fun fetchDailyUsageData(): List<Map<String, Any>> {
+            private fun fetchRawUsageMap(): Map<String, Long> {
                 val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-                val pm = packageManager
                 val calendar = Calendar.getInstance()
                 val endTime = calendar.timeInMillis
                 calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
@@ -239,24 +268,85 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
+                return aggregatedStats
+            }
 
+            private fun resolveAppDetailsWithMemoryCache(rawStats: Map<String, Long>): List<Map<String, Any>> {
+                val pm = packageManager
                 val usageList = ArrayList<Map<String, Any>>()
-                val sortedAppsList = aggregatedStats.toList().sortedByDescending { it.second }
+                val sortedAppsList = rawStats.toList().sortedByDescending { it.second }
 
                 for ((pkgName, timeSpent) in sortedAppsList) {
                     val appData = HashMap<String, Any>()
                     appData["packageName"] = pkgName
                     appData["usageTime"] = timeSpent
-                    try {
-                        val appInfo = pm.getApplicationInfo(pkgName, 0)
-                        appData["appName"] = pm.getApplicationLabel(appInfo).toString()
-                        appData["appIcon"] = drawableToBase64(pm.getApplicationIcon(appInfo))
-                    } catch (e: PackageManager.NameNotFoundException) {
-                        appData["appName"] = pkgName.split(".").last()
-                        appData["appIcon"] = ""
+
+                    var resolvedName: String
+                    var resolvedIconBase64: String
+
+                    // Thread-safe isolation check over cache metrics maps
+                    synchronized(appLabelCache) {
+                        if (appLabelCache.containsKey(pkgName)) {
+                            resolvedName = appLabelCache[pkgName] ?: ""
+                            resolvedIconBase64 = appIconCache[pkgName] ?: ""
+                        } else {
+                            // Cache Miss: Perform lookups safely on this background thread container
+                            val appInfo = dynamicRegistry[pkgName]
+                            if (appInfo != null) {
+                                try {
+                                    resolvedName = pm.getApplicationLabel(appInfo).toString()
+                                    resolvedIconBase64 = drawableToBase64(pm.getApplicationIcon(appInfo))
+                                } catch (e: Exception) {
+                                    resolvedName = fallbackFormattedName(pkgName)
+                                    resolvedIconBase64 = ""
+                                }
+                            } else {
+                                try {
+                                    val fallbackInfo = pm.getApplicationInfo(pkgName, 0)
+                                    resolvedName = pm.getApplicationLabel(fallbackInfo).toString()
+                                    resolvedIconBase64 = drawableToBase64(pm.getApplicationIcon(fallbackInfo))
+                                } catch (e: Exception) {
+                                    resolvedName = fallbackFormattedName(pkgName)
+                                    resolvedIconBase64 = ""
+                                }
+                            }
+                            // Commit to long-term memory allocation structures
+                            if (resolvedName.isNotEmpty()) appLabelCache[pkgName] = resolvedName
+                                appIconCache[pkgName] = resolvedIconBase64
+                        }
                     }
+
+                    appData["appName"] = resolvedName
+                    appData["appIcon"] = resolvedIconBase64
                     usageList.add(appData)
                 }
                 return usageList
+            }
+
+            private fun fallbackFormattedName(pkgName: String): String {
+                val components = pkgName.split(".")
+                val rawLeaf = components.last()
+                return if (rawLeaf.equals("android", ignoreCase = true) && components.size > 1) {
+                    components[components.size - 2].replaceFirstChar { it.uppercase() }
+                } else {
+                    rawLeaf.replaceFirstChar { it.uppercase() }
+                }
+            }
+
+            private fun drawableToBase64(drawable: Drawable): String {
+                val bitmap = if (drawable is BitmapDrawable) {
+                    drawable.bitmap
+                } else {
+                    val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 72
+                    val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 72
+                    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bmp)
+                    drawable.setBounds(0, 0, canvas.width, canvas.height)
+                    drawable.draw(canvas)
+                    bmp
+                }
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream) // Dropped to 80% to vastly compress MethodChannel transfer load bandwidth
+                return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
             }
 }

@@ -25,11 +25,13 @@ class BlockerViewContent extends StatefulWidget {
   State<BlockerViewContent> createState() => _BlockerViewContentState();
 }
 
-class _BlockerViewContentState extends State<BlockerViewContent> {
+class _BlockerViewContentState extends State<BlockerViewContent>
+    with WidgetsBindingObserver {
   final UsageService _usageService = UsageService();
   final TextEditingController _searchController = TextEditingController();
 
   bool _isLoading = true;
+  bool _usagePermitted = false;
   bool _overlayPermitted = false;
   bool _isStrictModeActive = false;
 
@@ -41,7 +43,8 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
   @override
   void initState() {
     super.initState();
-    _initialiseBlockerState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermissionsAndSync();
     _searchController.addListener(() {
       setState(() {
         _searchQuery = _searchController.text.trim().toLowerCase();
@@ -51,13 +54,36 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _initialiseBlockerState() async {
-    setState(() => _isLoading = true);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Force a fresh sync when coming back from Settings overlay screen
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissionsAndSync();
+    }
+  }
 
+  Future<void> _checkPermissionsAndSync() async {
+    final bool permitted = await _usageService.checkPermission();
+    final bool overlayOk = await _usageService.checkOverlayPermission();
+
+    setState(() {
+      _usagePermitted = permitted;
+      _overlayPermitted = overlayOk;
+    });
+
+    if (permitted) {
+      await _initialiseBlockerState();
+    } else {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _initialiseBlockerState() async {
     final prefs = await SharedPreferences.getInstance();
     _blockedPackages = prefs.getStringList('blocked_apps') ?? [];
     _isStrictModeActive = prefs.getBool('strict_mode_active') ?? false;
@@ -72,21 +98,14 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
       _appLimitsMinutes = {};
     }
 
-    final bool permitted = await _usageService.checkPermission();
-    final bool overlayOk = await _usageService.checkOverlayPermission();
+    final List<UsageAppModel> data = await _usageService.getDailyAppUsage();
+    setState(() {
+      _installedApps = data;
+      _isLoading = false;
+    });
 
-    if (permitted) {
-      final List<UsageAppModel> data = await _usageService.getDailyAppUsage();
-      setState(() {
-        _installedApps = data;
-        _overlayPermitted = overlayOk;
-        _isLoading = false;
-      });
-      await _usageService.syncBlockedApps(_blockedPackages);
-      await _usageService.syncAppLimits(_appLimitsMinutes);
-    } else {
-      setState(() => _isLoading = false);
-    }
+    await _usageService.syncBlockedApps(_blockedPackages);
+    await _usageService.syncAppLimits(_appLimitsMinutes);
   }
 
   Future<void> _toggleStrictMode(bool value) async {
@@ -238,7 +257,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                     activeColor: Theme.of(context).colorScheme.primary,
                     inactiveColor: Colors.white10,
                     onChanged: (val) {
-                      // Suggestion 2: Distinct physical selection click sensation
                       HapticFeedback.selectionClick();
                       setModalState(() => currentSelectedValue = val.toInt());
                     },
@@ -286,6 +304,47 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 3));
+    }
+
+    if (!_usagePermitted) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_rounded, size: 64, color: Colors.grey),
+                const SizedBox(height: 24),
+                Text(
+                  'Usage Access Needed',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Zenith needs Usage Access permission to read target package metrics.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, height: 1.4),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => _usageService.openPermissionSettings(),
+                  child: const Text(
+                    'Grant Usage Access',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
 
     final List<UsageAppModel> filteredApps = _installedApps.where((app) {
@@ -386,7 +445,7 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                     child: Column(
                       children: [
                         const Text(
-                          'System Overlay permission is mandatory to display the dynamic liquid breathing shield animations over blocked apps.',
+                          'System Overlay permission is mandatory to display the shield blocks over apps.',
                           style: TextStyle(
                             color: Colors.grey,
                             fontSize: 13,
@@ -438,20 +497,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: Colors.white.withOpacity(0.01),
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withOpacity(0.3),
-                      ),
-                    ),
                   ),
                 ),
               ],
@@ -485,19 +530,21 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface
-                            .withOpacity(_isStrictModeActive ? 0.75 : 1.0),
+                        color: Theme.of(context).colorScheme.surface,
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Row(
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: app.iconBytes != null
+                            child:
+                                app.iconBytes != null &&
+                                    app.iconBytes!.isNotEmpty
                                 ? Image.memory(
                                     app.iconBytes!,
                                     width: 36,
                                     height: 36,
+                                    fit: BoxFit.cover,
                                   )
                                 : const Icon(Icons.android, size: 36),
                           ),

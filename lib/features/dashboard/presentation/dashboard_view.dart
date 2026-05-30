@@ -13,9 +13,11 @@ class DashboardView extends StatefulWidget {
   State<DashboardView> createState() => _DashboardViewState();
 }
 
-class _DashboardViewState extends State<DashboardView> {
+class _DashboardViewState extends State<DashboardView>
+    with WidgetsBindingObserver {
   final UsageService _usageService = UsageService();
   bool _isLoading = true;
+  bool _hasPermission = false;
 
   Duration _totalScreentime = Duration.zero;
   List<PieSegmentData> _pieSegments = [];
@@ -26,29 +28,51 @@ class _DashboardViewState extends State<DashboardView> {
   int _activeQuotasCount = 0;
   int _focusScore = 100;
 
-  // Deep Work State Engine Parameters
   bool _isDeepWorkActive = false;
   Timer? _countdownTimer;
-  int _deepWorkSecondsRemaining = 1500; // 25 Minutes Standard
+  int _deepWorkSecondsRemaining = 1500;
 
   final List<Color> _luxuryColors = [
-    const Color(0xFF8B5CF6), // Royal Purple
-    const Color(0xFF3B82F6), // Neon Sky Blue
-    const Color(0xFF10B981), // Emerald Mint
-    const Color(0xFFF59E0B), // Ember Orange
+    const Color(0xFF8B5CF6),
+    const Color(0xFF3B82F6),
+    const Color(0xFF10B981),
+    const Color(0xFFF59E0B),
   ];
 
   @override
   void initState() {
     super.initState();
-    _loadEnhancedMetrics();
+    WidgetsBinding.instance.addObserver(this);
+    _checkPermissionsAndLoad();
     _resumeDeepWorkSessionTimerIfNeeded();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-verify permission state flags immediately when returning from system settings panels
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissionsAndLoad();
+    }
+  }
+
+  Future<void> _checkPermissionsAndLoad() async {
+    final bool permitted = await _usageService.checkPermission();
+    setState(() {
+      _hasPermission = permitted;
+    });
+
+    if (permitted) {
+      await _loadEnhancedMetrics();
+    } else {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _loadEnhancedMetrics() async {
@@ -63,54 +87,51 @@ class _DashboardViewState extends State<DashboardView> {
       quotaCount = decoded.keys.length;
     } catch (_) {}
 
-    final bool permitted = await _usageService.checkPermission();
     Duration calculatedTotal = Duration.zero;
     List<PieSegmentData> computedSegments = [];
     List<UsageAppModel> processedTopApps = [];
     List<CategoryUsageSummary> computedCategories = [];
 
-    if (permitted) {
-      final List<UsageAppModel> rawUsageData = await _usageService
-          .getDailyAppUsage();
-      final activeApps = rawUsageData
-          .where((app) => app.totalForegroundTime.inMinutes > 0)
-          .toList();
+    final List<UsageAppModel> rawUsageData = await _usageService
+        .getDailyAppUsage();
+    final activeApps = rawUsageData
+        .where((app) => app.totalForegroundTime.inMinutes > 0)
+        .toList();
 
-      for (var app in activeApps) {
-        calculatedTotal += app.totalForegroundTime;
+    for (var app in activeApps) {
+      calculatedTotal += app.totalForegroundTime;
+    }
+
+    if (activeApps.isNotEmpty) {
+      processedTopApps = activeApps.take(3).toList();
+      computedCategories = _usageService.computeCategoryBreakdown(
+        activeApps,
+        calculatedTotal,
+      );
+
+      final int segmentLimit = activeApps.length > 4 ? 4 : activeApps.length;
+      Duration assignedSegmentSum = Duration.zero;
+
+      for (int i = 0; i < segmentLimit; i++) {
+        final app = activeApps[i];
+        assignedSegmentSum += app.totalForegroundTime;
+        computedSegments.add(
+          PieSegmentData(
+            appName: app.appName,
+            timeSpent: app.totalForegroundTime,
+            color: _luxuryColors[i % _luxuryColors.length],
+          ),
+        );
       }
 
-      if (activeApps.isNotEmpty) {
-        processedTopApps = activeApps.take(3).toList();
-        computedCategories = _usageService.computeCategoryBreakdown(
-          activeApps,
-          calculatedTotal,
+      if (calculatedTotal > assignedSegmentSum) {
+        computedSegments.add(
+          PieSegmentData(
+            appName: 'Others',
+            timeSpent: calculatedTotal - assignedSegmentSum,
+            color: Colors.white24,
+          ),
         );
-
-        final int segmentLimit = activeApps.length > 4 ? 4 : activeApps.length;
-        Duration assignedSegmentSum = Duration.zero;
-
-        for (int i = 0; i < segmentLimit; i++) {
-          final app = activeApps[i];
-          assignedSegmentSum += app.totalForegroundTime;
-          computedSegments.add(
-            PieSegmentData(
-              appName: app.appName,
-              timeSpent: app.totalForegroundTime,
-              color: _luxuryColors[i % _luxuryColors.length],
-            ),
-          );
-        }
-
-        if (calculatedTotal > assignedSegmentSum) {
-          computedSegments.add(
-            PieSegmentData(
-              appName: 'Others',
-              timeSpent: calculatedTotal - assignedSegmentSum,
-              color: Colors.white24,
-            ),
-          );
-        }
       }
     }
 
@@ -139,7 +160,6 @@ class _DashboardViewState extends State<DashboardView> {
     });
   }
 
-  // Suggestion 4: Pomodoro Storage Session Validation
   Future<void> _resumeDeepWorkSessionTimerIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
     _isDeepWorkActive = prefs.getBool('deep_work_active') ?? false;
@@ -161,7 +181,7 @@ class _DashboardViewState extends State<DashboardView> {
   }
 
   void _startDeepWorkSession() async {
-    HapticFeedback.vibrate(); // Suggestion 2: Strong confirmation snap haptic trigger
+    HapticFeedback.vibrate();
     final prefs = await SharedPreferences.getInstance();
 
     setState(() {
@@ -175,7 +195,6 @@ class _DashboardViewState extends State<DashboardView> {
       DateTime.now().millisecondsSinceEpoch + (1500 * 1000),
     );
 
-    // Hard-lock all parsed app packages during runtime countdown window
     final rawApps = await _usageService.getDailyAppUsage();
     final List<String> catchAllPackages = rawApps
         .map((a) => a.packageName)
@@ -197,10 +216,8 @@ class _DashboardViewState extends State<DashboardView> {
     await prefs.setBool('deep_work_active', false);
     final List<String> historicBlocked =
         prefs.getStringList('blocked_apps') ?? [];
-    await _usageService.syncBlockedApps(
-      historicBlocked,
-    ); // Restore standard rules
-    _loadEnhancedMetrics();
+    await _usageService.syncBlockedApps(historicBlocked);
+    _checkPermissionsAndLoad();
   }
 
   void _startCountdownEngine() {
@@ -219,6 +236,51 @@ class _DashboardViewState extends State<DashboardView> {
     if (_isLoading)
       return const Center(child: CircularProgressIndicator(strokeWidth: 3));
 
+    if (!_hasPermission) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.bar_chart_rounded,
+                  size: 64,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Usage Stats Needed',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Zenith requires system stats tracking data access permission to populate dashboard trends dynamically.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, height: 1.4),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => _usageService.openPermissionSettings(),
+                  child: const Text(
+                    'Grant Access Permission',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final int minutes = _deepWorkSecondsRemaining ~/ 60;
     final int seconds = _deepWorkSecondsRemaining % 60;
     final String timeStr =
@@ -226,7 +288,7 @@ class _DashboardViewState extends State<DashboardView> {
 
     return Scaffold(
       body: RefreshIndicator(
-        onRefresh: _loadEnhancedMetrics,
+        onRefresh: _checkPermissionsAndLoad,
         color: Theme.of(context).colorScheme.primary,
         backgroundColor: Theme.of(context).colorScheme.surface,
         child: SingleChildScrollView(
@@ -263,7 +325,6 @@ class _DashboardViewState extends State<DashboardView> {
               ),
               const SizedBox(height: 36),
 
-              // Suggestion 4: Deep Work Pomodoro Card View
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -315,7 +376,6 @@ class _DashboardViewState extends State<DashboardView> {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
                       onPressed: () {
-                        // Suggestion 2: Micro tactile light trigger click
                         HapticFeedback.lightImpact();
                         _isDeepWorkActive
                             ? _stopDeepWorkSession()
@@ -335,7 +395,6 @@ class _DashboardViewState extends State<DashboardView> {
               ),
               const SizedBox(height: 24),
 
-              // Suggestion 3: Categorized Horizontal Stack Bars Visualizer
               if (_categories.isNotEmpty) ...[
                 const Text(
                   'Category Breakdown',
@@ -446,13 +505,21 @@ class _DashboardViewState extends State<DashboardView> {
                     ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 4,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: associationColor,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child:
+                              app.iconBytes != null && app.iconBytes!.isNotEmpty
+                              ? Image.memory(
+                                  app.iconBytes!,
+                                  width: 24,
+                                  height: 24,
+                                  fit: BoxFit.cover,
+                                )
+                              : Container(
+                                  width: 4,
+                                  height: 24,
+                                  color: associationColor,
+                                ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(

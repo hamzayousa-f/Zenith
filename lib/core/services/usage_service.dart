@@ -63,7 +63,12 @@ class UsageService {
         Uint8List? decodedIcon;
         if (base64Icon.isNotEmpty) {
           try {
-            decodedIcon = base64Decode(base64Icon.trim());
+            // Wipe newline wrappers and trailing layout bytes if present
+            final String cleanBase64 = base64Icon
+                .replaceAll('\n', '')
+                .replaceAll('\r', '')
+                .trim();
+            decodedIcon = base64Decode(cleanBase64);
           } catch (_) {}
         }
 
@@ -79,7 +84,6 @@ class UsageService {
     }
   }
 
-  // Suggestion 3: App Categorization Mapper Engine
   List<CategoryUsageSummary> computeCategoryBreakdown(
     List<UsageAppModel> activeApps,
     Duration totalTime,
