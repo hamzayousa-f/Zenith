@@ -55,6 +55,12 @@ class UsageService {
     } on PlatformException catch (_) {}
   }
 
+  Future<void> syncAppLimits(Map<String, int> limits) async {
+    try {
+      await _channel.invokeMethod('syncAppLimits', {'limits': limits});
+    } on PlatformException catch (_) {}
+  }
+
   Future<List<UsageAppModel>> getDailyAppUsage() async {
     try {
       final List<dynamic>? rawList = await _channel.invokeMethod<List<dynamic>>(

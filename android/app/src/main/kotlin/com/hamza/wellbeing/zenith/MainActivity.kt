@@ -26,14 +26,14 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.hamza.wellbeing.zenith/usage"
     private var blockerHandler: Handler? = null
         private var blockedAppsSet = HashSet<String>()
+        private var appLimitsMap = HashMap<String, Long>() // Package name vs Limit in Milliseconds
         private var temporarilyAllowedApps = HashMap<String, Long>()
         private var channelInstance: MethodChannel? = null
 
             override fun onCreate(savedInstanceState: Bundle?) {
                 super.onCreate(savedInstanceState)
-                // If revived by a cold hardware boot, retrieve restrictions natively and start up loops immediately
                 loadBlockedAppsFromNativeStorage()
-                if (blockedAppsSet.isNotEmpty()) {
+                if (blockedAppsSet.isNotEmpty() || appLimitsMap.isNotEmpty()) {
                     startBlockerEngineLoop()
                 }
             }
@@ -57,9 +57,17 @@ class MainActivity: FlutterActivity() {
                         "syncBlockedApps" -> {
                             val appsList = call.argument<List<String>>("apps") ?: listOf()
                             blockedAppsSet = HashSet(appsList)
-                            if (blockedAppsSet.isNotEmpty() && blockerHandler == null) {
-                                startBlockerEngineLoop()
+                            startBlockerEngineLoop()
+                            result.success(true)
+                        }
+                        "syncAppLimits" -> {
+                            val limits = call.argument<Map<String, Int>>("limits") ?: mapOf()
+                            appLimitsMap.clear()
+                            for ((key, value) in limits) {
+                                // Convert minutes sent from Flutter to milliseconds
+                                appLimitsMap[key] = value.toLong() * 60 * 1000
                             }
+                            startBlockerEngineLoop()
                             result.success(true)
                         }
                         "launchTargetApp" -> {
@@ -74,7 +82,7 @@ class MainActivity: FlutterActivity() {
                                     result.error("LAUNCH_FAILED", "Intent failure", null)
                                 }
                             } else {
-                                result.error("INVALID_PACKAGE", "Empty package identifier", null)
+                                result.error("INVALID_PACKAGE", "Empty identifier", null)
                             }
                         }
                         "getDailyAppUsage" -> {
@@ -94,14 +102,30 @@ class MainActivity: FlutterActivity() {
 
             private fun loadBlockedAppsFromNativeStorage() {
                 try {
-                    // Flutter's SharedPreferences plugin prefixes keys with 'Flutter.' inside standard XML data structures
                     val sharedPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
                     val jsonString = sharedPrefs.getString("flutter.blocked_apps", null)
                     if (jsonString != null) {
-                        // Parse out simple raw elements array manually for cold boot resilience
                         val clean = jsonString.replace("[", "").replace("]", "").replace("\"", "")
                         if (clean.isNotEmpty()) {
                             blockedAppsSet = HashSet(clean.split(",").map { it.trim() })
+                        }
+                    }
+
+                    // Native recovery for explicit duration allowance maps
+                    val limitsJson = sharedPrefs.getString("flutter.app_limits_minutes", null)
+                    if (limitsJson != null) {
+                        // Approximate inline string parser split mapping for safe thread load
+                        val clean = limitsJson.replace("{", "").replace("}", "").replace("\"", "")
+                        if (clean.isNotEmpty()) {
+                            val pairs = clean.split(",")
+                            for (pair in pairs) {
+                                val splitPair = pair.split(":")
+                                if (splitPair.size == 2) {
+                                    val pkg = splitPair[0].trim()
+                                    val mins = splitPair[1].trim().toLongOrNull() ?: 0L
+                                    if (mins > 0) appLimitsMap[pkg] = mins * 60 * 1000
+                                }
+                            }
                         }
                     }
                 } catch (e: Exception) { e.printStackTrace() }
@@ -115,7 +139,13 @@ class MainActivity: FlutterActivity() {
                             val currentTopPackage = getTopPackageName()
                             val currentTime = System.currentTimeMillis()
 
-                            if (blockedAppsSet.contains(currentTopPackage)) {
+                            // Calculate the daily usage accumulation for the currently running app package
+                            val dailyStatsMap = getTodayUsageMap()
+                            val accumulatedTime = dailyStatsMap[currentTopPackage] ?: 0L
+                            val allowedLimit = appLimitsMap[currentTopPackage] ?: Long.MAX_VALUE
+
+                            // Intercept if explicitly blocked OR if it exceeds the active screentime limit threshold
+                            if (blockedAppsSet.contains(currentTopPackage) || accumulatedTime > allowedLimit) {
                                 val allowedUntil = temporarilyAllowedApps[currentTopPackage] ?: 0L
                                 if (currentTime > allowedUntil) {
                                     val pm = packageManager
@@ -131,16 +161,12 @@ class MainActivity: FlutterActivity() {
                                     startActivity(intent)
 
                                     val payload = mapOf("appName" to appLabel, "packageName" to currentTopPackage)
-                                    newHandlerPost { channelInstance?.invokeMethod("triggerNativeShield", payload) }
+                                    Handler(Looper.getMainLooper()).post { channelInstance?.invokeMethod("triggerNativeShield", payload) }
                                 }
                             }
-                            blockerHandler?.postDelayed(this, 500)
+                            blockerHandler?.postDelayed(this, 600)
                         }
                     })
-            }
-
-            private fun newHandlerPost(action: () -> Unit) {
-                Handler(Looper.getMainLooper()).post { action() }
             }
 
             private fun getTopPackageName(): String {
@@ -152,6 +178,23 @@ class MainActivity: FlutterActivity() {
                     return sortedStats[0].packageName
                 }
                 return ""
+            }
+
+            private fun getTodayUsageMap(): Map<String, Long> {
+                val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+                val calendar = Calendar.getInstance()
+                val endTime = calendar.timeInMillis
+                calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
+                val startTime = calendar.timeInMillis
+
+                val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+                val usageMap = HashMap<String, Long>()
+                if (stats != null) {
+                    for (stat in stats) {
+                        usageMap[stat.packageName] = (usageMap[stat.packageName] ?: 0L) + stat.totalTimeInForeground
+                    }
+                }
+                return usageMap
             }
 
             private fun drawableToBase64(drawable: Drawable): String {
