@@ -1,121 +1,99 @@
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const ZenithApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class ZenithApp extends StatelessWidget {
+  const ZenithApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Zenith',
+      debugShowCheckedModeBanner: false,
+      
+      // Modern Bleeding-edge Dark Theme Schema matching master channel standards
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0D0D0F),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF8B5CF6), // Premium minimalist violet focus accent
+          secondary: Color(0xFF10B981), // Emerald accent for healthy stats
+          surface: Color(0xFF16161A), // Clean glassmorphic container cards
+          error: Color(0xFFEF4444),
+        ),
+        textTheme: const TextTheme(
+          headlineLarge: TextStyle(fontFamily: 'JetBrains Mono', fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+          bodyLarge: TextStyle(fontFamily: 'Inter', fontSize: 16, color: Color(0 prison9E9E9F)),
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MainLayoutBridge(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+/// Central Bottom Navigation Controller Bridge 
+class MainLayoutBridge extends StatefulWidget {
+  const MainLayoutBridge({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<MainLayoutBridge> createState() => _MainLayoutBridgeState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MainLayoutBridgeState extends State<MainLayoutBridge> {
+  int _currentIndex = 0;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
+  // Placeholder views for our feature-first directories
+  final List<Widget> _pages = [
+    const Center(child: Text('📊 Dashboard Feature Layer Active', style: TextStyle(fontSize: 16, color: Colors.white70))),
+    const Center(child: Text('📈 Analytics View Layer Active', style: TextStyle(fontSize: 16, color: Colors.white70))),
+    const Center(child: Text('🛡️ Blocker Rules Layer Active', style: TextStyle(fontSize: 16, color: Colors.white70))),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+      body: SafeArea(child: _pages[_currentIndex]),
+      bottomNavigationBar: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          indicatorColor: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 12);
+            }
+            return const TextStyle(color: Colors.grey, fontSize: 12);
+          }),
+        ),
+        child: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (int index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          backgroundColor: const Color(0xFF121214),
+          elevation: 0,
+          destinations: [
+            NavigationDestination(
+              icon: const Icon(Icons.dashboard_customize_outlined),
+              selectedIcon: Icon(Icons.dashboard_customize, color: Theme.of(context).colorScheme.primary),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: const Icon(Icons.bar_chart_outlined),
+              selectedIcon: Icon(Icons.bar_chart_rounded, color: Theme.of(context).colorScheme.primary),
+              label: 'Analytics',
+            ),
+            NavigationDestination(
+              icon: const Icon(Icons.gpp_maybe_outlined),
+              selectedIcon: Icon(Icons.gpp_maybe_rounded, color: Theme.of(context).colorScheme.primary),
+              label: 'Blocker',
             ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
       ),
     );
   }
