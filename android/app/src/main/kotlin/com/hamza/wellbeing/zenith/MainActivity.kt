@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -25,8 +26,17 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.hamza.wellbeing.zenith/usage"
     private var blockerHandler: Handler? = null
         private var blockedAppsSet = HashSet<String>()
-        private var temporarilyAllowedApps = HashMap<String, Long>() // Track app package vs expiry timestamp
+        private var temporarilyAllowedApps = HashMap<String, Long>()
         private var channelInstance: MethodChannel? = null
+
+            override fun onCreate(savedInstanceState: Bundle?) {
+                super.onCreate(savedInstanceState)
+                // If revived by a cold hardware boot, retrieve restrictions natively and start up loops immediately
+                loadBlockedAppsFromNativeStorage()
+                if (blockedAppsSet.isNotEmpty()) {
+                    startBlockerEngineLoop()
+                }
+            }
 
             override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
                 super.configureFlutterEngine(flutterEngine)
@@ -55,24 +65,21 @@ class MainActivity: FlutterActivity() {
                         "launchTargetApp" -> {
                             val pkgName = call.argument<String>("packageName") ?: ""
                             if (pkgName.isNotEmpty()) {
-                                // Grant 10 minutes of intentional usage bypass
                                 temporarilyAllowedApps[pkgName] = System.currentTimeMillis() + (10 * 60 * 1000)
-
-                                // Fire native intent to launch the targeted app directly
                                 val launchIntent = packageManager.getLaunchIntentForPackage(pkgName)
                                 if (launchIntent != null) {
                                     startActivity(launchIntent)
                                     result.success(true)
                                 } else {
-                                    result.error("LAUNCH_FAILED", "Could not find launch intent for package", null)
+                                    result.error("LAUNCH_FAILED", "Intent failure", null)
                                 }
                             } else {
-                                result.error("INVALID_PACKAGE", "Package name string was empty", null)
+                                result.error("INVALID_PACKAGE", "Empty package identifier", null)
                             }
                         }
                         "getDailyAppUsage" -> {
                             if (hasUsageStatsPermission()) result.success(fetchDailyUsageData())
-                                else result.error("PERMISSION_DENIED", "Permission not granted.", null)
+                                else result.error("PERMISSION_DENIED", "Permission denied.", null)
                         }
                         else -> result.notImplemented()
                     }
@@ -85,37 +92,55 @@ class MainActivity: FlutterActivity() {
                 return mode == AppOpsManager.MODE_ALLOWED
             }
 
-            private fun startBlockerEngineLoop() {
-                blockerHandler = Handler(Looper.getMainLooper())
-                blockerHandler?.post(object : Runnable {
-                    override fun run() {
-                        val currentTopPackage = getTopPackageName()
-                        val currentTime = System.currentTimeMillis()
-
-                        // Check if the app is blocked AND its bypass window has expired (or doesn't exist)
-                        if (blockedAppsSet.contains(currentTopPackage)) {
-                            val allowedUntil = temporarilyAllowedApps[currentTopPackage] ?: 0L
-                            if (currentTime > allowedUntil) {
-                                val pm = packageManager
-                                var appLabel = currentTopPackage
-                                try {
-                                    val appInfo = pm.getApplicationInfo(currentTopPackage, 0)
-                                    appLabel = pm.getApplicationLabel(appInfo).toString()
-                                } catch (e: Exception) {}
-
-                                // Force fully-awake visibility back to Zenith context frame
-                                val intent = Intent(this@MainActivity, MainActivity::class.java)
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                startActivity(intent)
-
-                                // Pass both the readable label and raw package name across the channel pipe
-                                val payload = mapOf("appName" to appLabel, "packageName" to currentTopPackage)
-                                channelInstance?.invokeMethod("triggerNativeShield", payload)
-                            }
+            private fun loadBlockedAppsFromNativeStorage() {
+                try {
+                    // Flutter's SharedPreferences plugin prefixes keys with 'Flutter.' inside standard XML data structures
+                    val sharedPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    val jsonString = sharedPrefs.getString("flutter.blocked_apps", null)
+                    if (jsonString != null) {
+                        // Parse out simple raw elements array manually for cold boot resilience
+                        val clean = jsonString.replace("[", "").replace("]", "").replace("\"", "")
+                        if (clean.isNotEmpty()) {
+                            blockedAppsSet = HashSet(clean.split(",").map { it.trim() })
                         }
-                        blockerHandler?.postDelayed(this, 500)
                     }
-                })
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+
+            private fun startBlockerEngineLoop() {
+                if (blockerHandler != null) return
+                    blockerHandler = Handler(Looper.getMainLooper())
+                    blockerHandler?.post(object : Runnable {
+                        override fun run() {
+                            val currentTopPackage = getTopPackageName()
+                            val currentTime = System.currentTimeMillis()
+
+                            if (blockedAppsSet.contains(currentTopPackage)) {
+                                val allowedUntil = temporarilyAllowedApps[currentTopPackage] ?: 0L
+                                if (currentTime > allowedUntil) {
+                                    val pm = packageManager
+                                    var appLabel = currentTopPackage
+                                    try {
+                                        val appInfo = pm.getApplicationInfo(currentTopPackage, 0)
+                                        appLabel = pm.getApplicationLabel(appInfo).toString()
+                                    } catch (e: Exception) {}
+
+                                    val intent = Intent(this@MainActivity, MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                    }
+                                    startActivity(intent)
+
+                                    val payload = mapOf("appName" to appLabel, "packageName" to currentTopPackage)
+                                    newHandlerPost { channelInstance?.invokeMethod("triggerNativeShield", payload) }
+                                }
+                            }
+                            blockerHandler?.postDelayed(this, 500)
+                        }
+                    })
+            }
+
+            private fun newHandlerPost(action: () -> Unit) {
+                Handler(Looper.getMainLooper()).post { action() }
             }
 
             private fun getTopPackageName(): String {
