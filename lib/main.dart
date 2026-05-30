@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'features/dashboard/presentation/dashboard_view.dart';
 import 'features/analytics/presentation/analytics_view.dart';
+import 'features/blocker/presentation/blocker_view.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +26,7 @@ class ZenithApp extends StatelessWidget {
           primary: Color(0xFF8B5CF6), // Premium minimalist violet focus accent
           secondary: Color(0xFF10B981), // Emerald accent for healthy stats
           surface: Color(0xFF16161A), // Clean glassmorphic container cards
-          error: Color(0xFFEF4444),
+          error: Color(0xFFEF4444), // Crimson accent for active blocker shields
         ),
         textTheme: const TextTheme(
           headlineLarge: TextStyle(
@@ -60,13 +61,8 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
   // Feature views hooked into the layout bridge controller
   final List<Widget> _pages = [
     const DashboardView(),
-    const AnalyticsView(), // Swapped static text for our live custom metric charts view
-    const Center(
-      child: Text(
-        '🛡️ Blocker Rules Layer Active',
-        style: TextStyle(fontSize: 16, color: Colors.white70),
-      ),
-    ),
+    const AnalyticsView(),
+    const BlockerView(), // Swapped final static placeholder text for our operational shield rules dashboard
   ];
 
   @override
@@ -119,7 +115,9 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
               icon: const Icon(Icons.gpp_maybe_outlined),
               selectedIcon: Icon(
                 Icons.gpp_maybe_rounded,
-                color: Theme.of(context).colorScheme.primary,
+                color: Theme.of(context)
+                    .colorScheme
+                    .error, // Colors switch to red when selecting blocker parameters
               ),
               label: 'Blocker',
             ),
