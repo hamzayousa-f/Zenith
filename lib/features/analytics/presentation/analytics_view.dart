@@ -173,90 +173,83 @@ class _AnalyticsViewState extends State<AnalyticsView> {
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final app = _usageList[index];
-                    final double executionRatio =
-                        _totalScreenTime.inMilliseconds > 0
-                        ? (app.totalForegroundTime.inMilliseconds /
-                              _totalScreenTime.inMilliseconds)
-                        : 0.0;
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final app = _usageList[index];
+                  final double executionRatio =
+                      _totalScreenTime.inMilliseconds > 0
+                      ? (app.totalForegroundTime.inMilliseconds /
+                            _totalScreenTime.inMilliseconds)
+                      : 0.0;
 
-                    final int appHours = app.totalForegroundTime.inHours;
-                    final int appMinutes = app.totalForegroundTime.inMinutes
-                        .remainder(60);
+                  final int appHours = app.totalForegroundTime.inHours;
+                  final int appMinutes = app.totalForegroundTime.inMinutes
+                      .remainder(60);
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  app.cleanAppName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                    color: Colors.white,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                app.appName, // Swapped from cleanAppName to our live system variable appName
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: Colors.white,
                                 ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              Text(
-                                '${(executionRatio * 100).toStringAsFixed(1)}% (${appHours > 0 ? '${appHours}h ${appMinutes}m' : '${appMinutes}m'})',
-                                style: TextStyle(
-                                  fontFamily: 'JetBrains Mono',
-                                  fontSize: 12,
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.secondary,
-                                ),
+                            ),
+                            Text(
+                              '${(executionRatio * 100).toStringAsFixed(1)}% (${appHours > 0 ? '${appHours}h ${appMinutes}m' : '${appMinutes}m'})',
+                              style: TextStyle(
+                                fontFamily: 'JetBrains Mono',
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.secondary,
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
 
-                          // High-Performance Custom Graphical Metric Bar Slider Container
-                          Stack(
-                            children: [
-                              Container(
+                        // High-Performance Custom Graphical Metric Bar Slider Container
+                        Stack(
+                          children: [
+                            Container(
+                              height: 10,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(6),
+                                color: const Color(0xFF1B1B1F),
+                              ),
+                            ),
+                            FractionallySizedBox(
+                              widthFactor: executionRatio,
+                              child: Container(
                                 height: 10,
-                                width: double.infinity,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(6),
-                                  color: const Color(0xFF1B1B1F),
-                                ),
-                              ),
-                              FractionallySizedBox(
-                                widthFactor: executionRatio,
-                                child: Container(
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(6),
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Theme.of(context).colorScheme.secondary,
-                                        Theme.of(context).colorScheme.secondary
-                                            .withOpacity(0.5),
-                                      ],
-                                    ),
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Theme.of(context).colorScheme.secondary,
+                                      Theme.of(
+                                        context,
+                                      ).colorScheme.secondary.withOpacity(0.5),
+                                    ],
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  childCount: _usageList.length > 6
-                      ? 6
-                      : _usageList
-                            .length, // Limit layout map depth focus explicitly to top 6 resource drains
-                ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }, childCount: _usageList.length > 6 ? 6 : _usageList.length),
               ),
             ),
           ],
