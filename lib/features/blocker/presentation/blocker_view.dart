@@ -7,6 +7,11 @@ class BlockerView extends StatefulWidget {
   const BlockerView({super.key});
 
   @override
+  State<BlockerView> createState() => _BlockerViewState();
+}
+
+class _BlockerViewState extends State<BlockerView> {
+  @override
   Widget build(BuildContext context) {
     return const Scaffold(body: BlockerViewContent());
   }
@@ -40,7 +45,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
     final prefs = await SharedPreferences.getInstance();
     _blockedPackages = prefs.getStringList('blocked_apps') ?? [];
 
-    // De-serialize native string maps safely
     final String savedLimitsRaw = prefs.getString('app_limits_minutes') ?? '{}';
     try {
       final Map<String, dynamic> decoded = jsonDecode(savedLimitsRaw);
@@ -168,7 +172,7 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                         jsonEncode(_appLimitsMinutes),
                       );
                       await _usageService.syncAppLimits(_appLimitsMinutes);
-                      Navigator.pop(context);
+                      if (context.mounted) Navigator.pop(context);
                     },
                     child: const Text(
                       'Save Allocation Rules',
