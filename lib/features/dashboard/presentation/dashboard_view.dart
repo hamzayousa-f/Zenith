@@ -28,7 +28,6 @@ class _DashboardViewState extends State<DashboardView>
     super.dispose();
   }
 
-  // Automatically refresh usage statistics if the user comes back from the system settings page
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -151,7 +150,7 @@ class _DashboardViewState extends State<DashboardView>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Realtime tracking initialized successfully.',
+                      'Realtime tracking tracking live system metrics.',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   ],
@@ -188,22 +187,25 @@ class _DashboardViewState extends State<DashboardView>
                           ),
                           child: Row(
                             children: [
-                              CircleAvatar(
-                                backgroundColor: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withOpacity(0.1),
-                                child: Text(
-                                  app.cleanAppName.substring(
-                                    0,
-                                    app.cleanAppName.length >= 2 ? 2 : 1,
-                                  ),
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: app.iconBytes != null
+                                    ? Image.memory(
+                                        app.iconBytes!,
+                                        width: 38,
+                                        height: 38,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Container(
+                                        width: 38,
+                                        height: 38,
+                                        color: Colors.white10,
+                                        child: const Icon(
+                                          Icons.android,
+                                          size: 20,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
                               ),
                               const SizedBox(width: 16),
                               Expanded(
@@ -211,7 +213,7 @@ class _DashboardViewState extends State<DashboardView>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      app.cleanAppName,
+                                      app.appName, // Live system readable display name
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 15,
@@ -237,6 +239,7 @@ class _DashboardViewState extends State<DashboardView>
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
+                                  fontFamily: 'JetBrains Mono',
                                 ),
                               ),
                             ],

@@ -1,78 +1,86 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 
 class UsageAppModel {
   final String packageName;
+  final String appName;
   final Duration totalForegroundTime;
+  final Uint8List? iconBytes;
 
-  UsageAppModel({required this.packageName, required this.totalForegroundTime});
-
-  // Helper utility to strip package headers into clean display names
-  String get cleanAppName {
-    if (!packageName.contains('.')) return packageName;
-    final parts = packageName.split('.');
-    if (parts.last.toLowerCase() == 'android' && parts.length > 1) {
-      return parts[parts.length - 2].toUpperCase();
-    }
-    return parts.last.toUpperCase();
-  }
+  UsageAppModel({
+    required this.packageName,
+    required this.appName,
+    required this.totalForegroundTime,
+    this.iconBytes,
+  });
 }
 
 class UsageService {
-  // Must match the exact namespace channel ID we declared in MainActivity.kt
   static const MethodChannel _channel = MethodChannel(
     'com.hamza.wellbeing.zenith/usage',
   );
 
-  /// Evaluates whether the system usage log tracking toggle is allowed
   Future<bool> checkPermission() async {
     try {
       final bool hasPermission = await _channel.invokeMethod(
         'checkUsagePermission',
       );
       return hasPermission;
-    } on PlatformException catch (e) {
-      // Intentionally fallback to false if native invocation faces runtime drift
+    } on PlatformException catch (_) {
       return false;
     }
   }
 
-  /// Redirects the user directly to the OS Settings system access portal
   Future<void> openPermissionSettings() async {
     try {
       await _channel.invokeMethod('openPermissionSettings');
-    } on PlatformException catch (e) {
-      // Log trace block if required
-    }
+    } on PlatformException catch (_) {}
   }
 
-  /// Pulls, maps, and sorts today's application statistics from midnight to now
   Future<List<UsageAppModel>> getDailyAppUsage() async {
     try {
-      final Map<dynamic, dynamic>? rawData = await _channel
-          .invokeMethod<Map<dynamic, dynamic>>('getDailyAppUsage');
+      final List<dynamic>? rawList = await _channel.invokeMethod<List<dynamic>>(
+        'getDailyAppUsage',
+      );
 
-      if (rawData == null || rawData.isEmpty) {
+      if (rawList == null || rawList.isEmpty) {
         return [];
       }
 
       final List<UsageAppModel> appsList = [];
 
-      rawData.forEach((key, value) {
+      for (var element in rawList) {
+        final Map<dynamic, dynamic> appData = element as Map<dynamic, dynamic>;
+
+        Uint8List? decodedIcon;
+        final String base64String = appData['appIcon']?.toString() ?? '';
+        if (base64String.isNotEmpty) {
+          try {
+            decodedIcon = base64Decode(base64String);
+          } catch (_) {
+            decodedIcon = null;
+          }
+        }
+
         appsList.add(
           UsageAppModel(
-            packageName: key.toString(),
-            totalForegroundTime: Duration(milliseconds: value as int),
+            packageName: appData['packageName'].toString(),
+            appName: appData['appName'].toString(),
+            totalForegroundTime: Duration(
+              milliseconds: appData['usageTime'] as int,
+            ),
+            iconBytes: decodedIcon,
           ),
         );
-      });
+      }
 
-      // Sort descending so the biggest time-sinks sit directly at index 0
+      // Sort descending based on heaviest execution drains
       appsList.sort(
         (a, b) => b.totalForegroundTime.compareTo(a.totalForegroundTime),
       );
-
       return appsList;
-    } on PlatformException catch (e) {
+    } on PlatformException catch (_) {
       return [];
     }
   }

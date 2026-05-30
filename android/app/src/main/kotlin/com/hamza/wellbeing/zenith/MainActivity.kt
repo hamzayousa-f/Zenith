@@ -4,12 +4,19 @@ import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Process
 import android.provider.Settings
+import android.util.Base64
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.util.Calendar
 
 class MainActivity: FlutterActivity() {
@@ -52,10 +59,10 @@ class MainActivity: FlutterActivity() {
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    private fun fetchDailyUsageData(): Map<String, Long> {
+    private fun fetchDailyUsageData(): List<Map<String, Any>> {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val pm = packageManager
 
-        // Calculate the timeframe boundary limits (From midnight today until right now)
         val calendar = Calendar.getInstance()
         val endTime = calendar.timeInMillis
 
@@ -65,27 +72,66 @@ class MainActivity: FlutterActivity() {
         calendar.set(Calendar.MILLISECOND, 0)
         val startTime = calendar.timeInMillis
 
-        // Query the OS logs directly
         val stats = usageStatsManager.queryUsageStats(
             UsageStatsManager.INTERVAL_DAILY,
             startTime,
             endTime
         )
 
-        val usageMap = HashMap<String, Long>()
+        val aggregatedStats = HashMap<String, Long>()
         if (stats != null) {
             for (usageStat in stats) {
                 val totalTime = usageStat.totalTimeInForeground
                 if (totalTime > 0) {
-                    // Extract clean human readable app identities
                     val pkgName = usageStat.packageName
-                    // Standard clean up filter out system launchers or empty layers
                     if (!pkgName.contains("com.android.launcher") && !pkgName.contains("com.android.systemui")) {
-                        usageMap[pkgName] = (usageMap[pkgName] ?: 0L) + totalTime
+                        aggregatedStats[pkgName] = (aggregatedStats[pkgName] ?: 0L) + totalTime
                     }
                 }
             }
         }
-        return usageMap
+
+        val usageList = ArrayList<Map<String, Any>>()
+
+        for ((pkgName, timeSpent) in aggregatedStats) {
+            val appData = HashMap<String, Any>()
+            appData["packageName"] = pkgName
+            appData["usageTime"] = timeSpent
+
+            try {
+                val appInfo = pm.getApplicationInfo(pkgName, 0)
+                appData["appName"] = pm.getApplicationLabel(appInfo).toString()
+
+                // Get App Icon and transform into Base64 format string safely
+                val iconDrawable = pm.getApplicationIcon(appInfo)
+                val base64Icon = drawableToBase64(iconDrawable)
+                appData["appIcon"] = base64Icon
+            } catch (e: PackageManager.NameNotFoundException) {
+                appData["appName"] = pkgName.split(".").last()
+                appData["appIcon"] = ""
+            }
+            usageList.add(appData)
+        }
+        return usageList
+    }
+
+    private fun drawableToBase64(drawable: Drawable): String {
+        val bitmap = if (drawable is BitmapDrawable) {
+            drawable.bitmap
+        } else {
+            val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 100
+            val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 100
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bmp
+        }
+
+        val outputStream = ByteArrayOutputStream()
+        // Compress heavily to maintain fast execution pipelines over method channel data pipes
+        bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream)
+        val byteArray = outputStream.toByteArray()
+        return Base64.encodeToString(byteArray, Base64.NO_WRAP)
     }
 }
