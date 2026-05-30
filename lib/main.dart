@@ -6,7 +6,6 @@ import 'features/blocker/presentation/blocker_view.dart';
 import 'features/blocker/presentation/liquid_shield_overlay.dart';
 
 void main() {
-  // Ensure framework bindings are ready before method channel setup
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ZenithApp());
 }
@@ -59,7 +58,8 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
   int _currentIndex = 0;
   static const _channel = MethodChannel('com.hamza.wellbeing.zenith/usage');
 
-  String? _interceptedApp;
+  String? _interceptedAppName;
+  String? _interceptedPackageName;
   bool _isShieldActive = false;
 
   final List<Widget> _pages = [
@@ -72,21 +72,40 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
   void initState() {
     super.initState();
 
-    // Explicitly listen for native background interceptor methods
     _channel.setMethodCallHandler((call) async {
       if (call.method == "triggerNativeShield") {
-        final String appLabel = call.arguments.toString();
-        _activateShield(appLabel);
+        final Map<dynamic, dynamic> payload =
+            call.arguments as Map<dynamic, dynamic>;
+        _activateShield(
+          payload['appName'].toString(),
+          payload['packageName'].toString(),
+        );
       }
     });
   }
 
-  void _activateShield(String appLabel) {
+  void _activateShield(String appLabel, String packageID) {
     if (_isShieldActive) return;
     setState(() {
-      _interceptedApp = appLabel;
+      _interceptedAppName = appLabel;
+      _interceptedPackageName = packageID;
       _isShieldActive = true;
     });
+  }
+
+  Future<void> _handleIntentBypassRelease(String targetPackage) async {
+    setState(() {
+      _isShieldActive = false;
+      _interceptedAppName = null;
+      _interceptedPackageName = null;
+    });
+
+    try {
+      // Command Kotlin layer to mark this app as allowed and open it directly
+      await _channel.invokeMethod('launchTargetApp', {
+        'packageName': targetPackage,
+      });
+    } on PlatformException catch (_) {}
   }
 
   @override
@@ -118,20 +137,14 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
           ),
         ),
 
-        // Liquid Shading Canvas positions itself instantly above all structural layers
-        if (_isShieldActive && _interceptedApp != null)
+        if (_isShieldActive &&
+            _interceptedAppName != null &&
+            _interceptedPackageName != null)
           Positioned.fill(
             child: LiquidShieldOverlay(
-              appName: _interceptedApp!,
-              onDismiss: () {
-                setState(() {
-                  _isShieldActive = false;
-                  _interceptedApp = null;
-                });
-
-                // Minimize application back to hardware home paths safely on dismiss
-                SystemNavigator.pop();
-              },
+              appName: _interceptedAppName!,
+              packageName: _interceptedPackageName!,
+              onDismiss: (pkg) => _handleIntentBypassRelease(pkg),
             ),
           ),
       ],
