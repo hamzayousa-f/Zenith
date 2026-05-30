@@ -21,9 +21,9 @@ class _DashboardViewState extends State<DashboardView> {
 
   int _activeBlocksCount = 0;
   int _activeQuotasCount = 0;
-  int _focusScore = 100; // Psychological score ranging up to 100
+  int _focusScore = 100;
 
-  // Aesthetic color pallet tags assigned down to usage segments
+  // Premium, high-contrast palette for the dynamic segments
   final List<Color> _luxuryColors = [
     const Color(0xFF8B5CF6), // Royal Purple
     const Color(0xFF3B82F6), // Neon Sky Blue
@@ -58,6 +58,8 @@ class _DashboardViewState extends State<DashboardView> {
     if (permitted) {
       final List<UsageAppModel> rawUsageData = await _usageService
           .getDailyAppUsage();
+
+      // Keep only active apps to ensure precise percentage allocation
       final activeApps = rawUsageData
           .where((app) => app.totalForegroundTime.inMinutes > 0)
           .toList();
@@ -66,11 +68,10 @@ class _DashboardViewState extends State<DashboardView> {
         calculatedTotal += app.totalForegroundTime;
       }
 
-      // Populate Top App Lists & Segment Rings
       if (activeApps.isNotEmpty) {
+        // Track the top 3 items for the quick list section below
         processedTopApps = activeApps.take(3).toList();
 
-        // Take top 4 distinct apps for detailed colored slice allocation
         final int segmentLimit = activeApps.length > 4 ? 4 : activeApps.length;
         Duration assignedSegmentSum = Duration.zero;
 
@@ -86,7 +87,7 @@ class _DashboardViewState extends State<DashboardView> {
           );
         }
 
-        // Aggregate all lower running minor metrics into an "Others" slice
+        // Collapse remaining low-priority applications into "Others"
         if (calculatedTotal > assignedSegmentSum) {
           computedSegments.add(
             PieSegmentData(
@@ -99,11 +100,25 @@ class _DashboardViewState extends State<DashboardView> {
       }
     }
 
-    // Dynamic Focus Score calculation algorithm logic
-    // Subtract points heavily based on total screen hours and number of active time cap blocks
-    int calculatedScore =
-        100 - (calculatedTotal.inHours * 12) - (quotaCount * 4);
-    if (calculatedScore < 10) calculatedScore = 10; // Floor threshold bound
+    // DYNAMIC FOCUS SCORE CALCULATION ALGORITHM
+    // 100 base score. Linear subtraction based on daily usage time.
+    double totalHours = calculatedTotal.inMinutes / 60.0;
+    int calculatedScore = 100;
+
+    if (totalHours <= 3.0) {
+      // Mild decay curve when under 3 hours
+      calculatedScore = 100 - (totalHours * 5).toInt();
+    } else if (totalHours > 3.0 && totalHours <= 4.0) {
+      // Step down deduction between 3 to 4 hours
+      calculatedScore = 85 - ((totalHours - 3.0) * 15).toInt();
+    } else {
+      // Drastic drop when crossing deep overuse markers (> 4 hours)
+      calculatedScore = 70 - ((totalHours - 4.0) * 8).toInt();
+    }
+
+    // Absolute boundary clamps
+    if (calculatedScore > 100) calculatedScore = 100;
+    if (calculatedScore < 5) calculatedScore = 5;
 
     setState(() {
       _totalScreentime = calculatedTotal;
@@ -133,7 +148,6 @@ class _DashboardViewState extends State<DashboardView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Welcome Header Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -151,19 +165,17 @@ class _DashboardViewState extends State<DashboardView> {
                       ),
                     ],
                   ),
-                  _buildFocusScoreBadge(),
+                  _buildDynamicFocusBadge(),
                 ],
               ),
               const SizedBox(height: 36),
 
-              // Enhanced Multi-Segment Pie Graphic Element
               AppPieChart(
                 segments: _pieSegments,
                 totalScreentime: _totalScreentime,
               ),
               const SizedBox(height: 40),
 
-              // Active Rules Counters Row
               Row(
                 children: [
                   Expanded(
@@ -187,7 +199,6 @@ class _DashboardViewState extends State<DashboardView> {
               ),
               const SizedBox(height: 32),
 
-              // The Missing Piece: Today's Heavy Litmus Apps List Section
               const Text(
                 'Top Time Consumers',
                 style: TextStyle(
@@ -201,14 +212,14 @@ class _DashboardViewState extends State<DashboardView> {
               if (_topThreeApps.isEmpty)
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Center(
                     child: Text(
-                      'No prominent app usage logged today.',
+                      'No prominent usage logs registered yet.',
                       style: TextStyle(color: Colors.grey, fontSize: 13),
                     ),
                   ),
@@ -238,7 +249,6 @@ class _DashboardViewState extends State<DashboardView> {
                     ),
                     child: Row(
                       children: [
-                        // Coloured Segment Line Identifier Tracker
                         Container(
                           width: 4,
                           height: 24,
@@ -268,7 +278,7 @@ class _DashboardViewState extends State<DashboardView> {
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 12),
                         Text(
                           '$percent%',
                           style: TextStyle(
@@ -287,18 +297,24 @@ class _DashboardViewState extends State<DashboardView> {
     );
   }
 
-  Widget _buildFocusScoreBadge() {
-    Color conditionColor = const Color(0xFF10B981); // Green
-    if (_focusScore < 75 && _focusScore >= 45)
-      conditionColor = const Color(0xFFF59E0B); // Orange
-    if (_focusScore < 45) conditionColor = const Color(0xFFEF4444); // Red
+  Widget _buildDynamicFocusBadge() {
+    double totalHours = _totalScreentime.inMinutes / 60.0;
+
+    Color badgeColor = const Color(0xFF10B981); // Default Green under 3 hours
+    if (totalHours > 3.0 && totalHours <= 4.0) {
+      badgeColor = const Color(0xFFF59E0B); // Adaptive Warning Yellow/Orange
+    } else if (totalHours > 4.0) {
+      badgeColor = const Color(
+        0xFFEF4444,
+      ); // Critical Overuse Red (e.g. 8-hour marker)
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: conditionColor.withOpacity(0.08),
+        color: badgeColor.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: conditionColor.withOpacity(0.25)),
+        border: Border.all(color: badgeColor.withOpacity(0.25)),
       ),
       child: Column(
         children: [
@@ -308,7 +324,7 @@ class _DashboardViewState extends State<DashboardView> {
               fontFamily: 'JetBrains Mono',
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: conditionColor,
+              color: badgeColor,
             ),
           ),
           const Text(

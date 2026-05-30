@@ -72,7 +72,6 @@ class MainActivity: FlutterActivity() {
                         "launchTargetApp" -> {
                             val pkgName = call.argument<String>("packageName") ?: ""
                             if (pkgName.isNotEmpty()) {
-                                // Grant 10 minutes temporary bypass pass
                                 temporarilyAllowedApps[pkgName] = System.currentTimeMillis() + (10 * 60 * 1000)
                                 val launchIntent = packageManager.getLaunchIntentForPackage(pkgName)
                                 if (launchIntent != null) {
@@ -146,9 +145,6 @@ class MainActivity: FlutterActivity() {
 
                             if (isExplicitlyBlocked || isLimitExceeded) {
                                 val allowedUntil = temporarilyAllowedApps[currentTopPackage] ?: 0L
-
-                                // CRITICAL FIX: If the app has crossed its daily allowance threshold,
-                                // bypass mechanisms are entirely ignored to prevent loops on overused apps.
                                 if (currentTime > allowedUntil || isLimitExceeded) {
                                     val pm = packageManager
                                     var appLabel = currentTopPackage
@@ -162,7 +158,6 @@ class MainActivity: FlutterActivity() {
                                     }
                                     startActivity(intent)
 
-                                    // Pass along the precise type of block violation
                                     val violationType = if (isLimitExceeded) "limit_exceeded" else "hard_block"
                                     val payload = mapOf(
                                         "appName" to appLabel,
@@ -226,13 +221,16 @@ class MainActivity: FlutterActivity() {
                 calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
                 val startTime = calendar.timeInMillis
 
+                // Aggregating across a full system daily query interval window cleanly
                 val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
                 val aggregatedStats = HashMap<String, Long>()
+
                 if (stats != null) {
                     for (usageStat in stats) {
                         val totalTime = usageStat.totalTimeInForeground
                         if (totalTime > 0) {
                             val pkgName = usageStat.packageName
+                            // Ignore common launcher overlays and Android structural system spaces
                             if (!pkgName.contains("launcher") && !pkgName.contains("systemui") && pkgName != packageName) {
                                 aggregatedStats[pkgName] = (aggregatedStats[pkgName] ?: 0L) + totalTime
                             }
@@ -241,15 +239,20 @@ class MainActivity: FlutterActivity() {
                 }
 
                 val usageList = ArrayList<Map<String, Any>>()
-                for ((pkgName, timeSpent) in aggregatedStats) {
+                // Sort items by absolute descending total time spent so highest app floats to the top instantly
+                val sortedAppsList = aggregatedStats.toList().sortedByDescending { it.second }
+
+                for ((pkgName, timeSpent) in sortedAppsList) {
                     val appData = HashMap<String, Any>()
-                    appData["packageName"] = pkgName; appData["usageTime"] = timeSpent
+                    appData["packageName"] = pkgName
+                    appData["usageTime"] = timeSpent
                     try {
                         val appInfo = pm.getApplicationInfo(pkgName, 0)
                         appData["appName"] = pm.getApplicationLabel(appInfo).toString()
                         appData["appIcon"] = drawableToBase64(pm.getApplicationIcon(appInfo))
                     } catch (e: PackageManager.NameNotFoundException) {
-                        appData["appName"] = pkgName.split(".").last(); appData["appIcon"] = ""
+                        appData["appName"] = pkgName.split(".").last()
+                        appData["appIcon"] = ""
                     }
                     usageList.add(appData)
                 }
