@@ -28,10 +28,10 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
   final UsageService _usageService = UsageService();
   bool _isLoading = true;
   bool _overlayPermitted = false;
+  bool _isStrictModeActive = false; // Master lock parameter
   List<UsageAppModel> _installedApps = [];
   List<String> _blockedPackages = [];
-  Map<String, int> _appLimitsMinutes =
-      {}; // Package Name vs Limit Allowance in Minutes
+  Map<String, int> _appLimitsMinutes = {};
 
   @override
   void initState() {
@@ -44,6 +44,7 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
 
     final prefs = await SharedPreferences.getInstance();
     _blockedPackages = prefs.getStringList('blocked_apps') ?? [];
+    _isStrictModeActive = prefs.getBool('strict_mode_active') ?? false;
 
     final String savedLimitsRaw = prefs.getString('app_limits_minutes') ?? '{}';
     try {
@@ -72,7 +73,66 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
     }
   }
 
+  Future<void> _toggleStrictMode(bool value) async {
+    if (!value) {
+      // Show an aggressive alert if they try to turn it off
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Strict Mode cannot be disabled manually once locked! Rules reset at midnight.',
+          ),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    // Explicit confirmation dialog before activating handcuffs
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16161A),
+        title: const Text(
+          'Activate Strict Lock?',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        content: const Text(
+          'This will make your block list and time limits immutable for the rest of the day. You cannot alter them to access blocked apps.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF8B5CF6),
+            ),
+            child: const Text(
+              'Enforce Lockout',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _isStrictModeActive = true;
+      });
+      await prefs.setBool('strict_mode_active', true);
+    }
+  }
+
   Future<void> _toggleBlockStatus(String packageName) async {
+    if (_isStrictModeActive) {
+      _showStrictWarning();
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       if (_blockedPackages.contains(packageName)) {
@@ -86,7 +146,25 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
     await _usageService.syncBlockedApps(_blockedPackages);
   }
 
+  void _showStrictWarning() {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          '🔒 Strict Mode Active: Current focus rules are hard-locked.',
+        ),
+        backgroundColor: Color(0xFF8B5CF6),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _showLimitPicker(String packageName, String appName) async {
+    if (_isStrictModeActive) {
+      _showStrictWarning();
+      return;
+    }
+
     int currentSelectedValue = _appLimitsMinutes[packageName] ?? 0;
 
     showModalBottomSheet(
@@ -211,7 +289,68 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                   'Enforce strict rules over addictive applications.',
                   style: Theme.of(context).textTheme.bodyLarge,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 24),
+
+                // Strict Mode Interface Control Panel Card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _isStrictModeActive
+                        ? const Color(0xFF8B5CF6).withOpacity(0.08)
+                        : Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _isStrictModeActive
+                          ? const Color(0xFF8B5CF6).withOpacity(0.3)
+                          : Colors.white.withOpacity(0.02),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _isStrictModeActive
+                            ? Icons.lock_rounded
+                            : Icons.lock_open_rounded,
+                        color: _isStrictModeActive
+                            ? const Color(0xFF8B5CF6)
+                            : Colors.grey,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Strict Mode',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _isStrictModeActive
+                                  ? 'Handcuffs locked. Focus rules are immutable.'
+                                  : 'Freeze adjustments until the day resets.',
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch.adaptive(
+                        value: _isStrictModeActive,
+                        activeColor: const Color(0xFF8B5CF6),
+                        onChanged: (val) => _toggleStrictMode(val),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
 
                 if (!_overlayPermitted)
                   Container(
@@ -263,7 +402,9 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
+                  color: Theme.of(context).colorScheme.surface.withOpacity(
+                    _isStrictModeActive ? 0.75 : 1.0,
+                  ),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
