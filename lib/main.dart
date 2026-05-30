@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'features/dashboard/presentation/dashboard_view.dart';
+import 'features/analytics/presentation/analytics_view.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -58,13 +59,8 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
 
   // Feature views hooked into the layout bridge controller
   final List<Widget> _pages = [
-    const DashboardView(), // Swapped static text for live tracking view
-    const Center(
-      child: Text(
-        '📈 Analytics View Layer Active',
-        style: TextStyle(fontSize: 16, color: Colors.white70),
-      ),
-    ),
+    const DashboardView(),
+    const AnalyticsView(), // Swapped static text for our live custom metric charts view
     const Center(
       child: Text(
         '🛡️ Blocker Rules Layer Active',
