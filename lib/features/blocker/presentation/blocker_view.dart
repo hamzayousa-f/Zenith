@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/usage_service.dart';
 
@@ -237,6 +238,8 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                     activeColor: Theme.of(context).colorScheme.primary,
                     inactiveColor: Colors.white10,
                     onChanged: (val) {
+                      // Suggestion 2: Distinct physical selection click sensation
+                      HapticFeedback.selectionClick();
                       setModalState(() => currentSelectedValue = val.toInt());
                     },
                   ),
@@ -285,7 +288,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
       return const Center(child: CircularProgressIndicator(strokeWidth: 3));
     }
 
-    // Filter our apps on the fly based on the query input string
     final List<UsageAppModel> filteredApps = _installedApps.where((app) {
       return app.appName.toLowerCase().contains(_searchQuery) ||
           app.packageName.toLowerCase().contains(_searchQuery);
@@ -310,7 +312,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                 ),
                 const SizedBox(height: 24),
 
-                // Strict Mode Switch Card
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -406,7 +407,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
                     ),
                   ),
 
-                // NEW: Dark Cyberpunk Search Input Bar
                 TextField(
                   controller: _searchController,
                   style: const TextStyle(fontSize: 14, color: Colors.white),
@@ -459,7 +459,6 @@ class _BlockerViewContentState extends State<BlockerViewContent> {
           ),
         ),
 
-        // App List
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           sliver: filteredApps.isEmpty

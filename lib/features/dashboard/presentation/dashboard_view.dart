@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/usage_service.dart';
 import 'widgets/app_pie_chart.dart';
@@ -18,12 +20,17 @@ class _DashboardViewState extends State<DashboardView> {
   Duration _totalScreentime = Duration.zero;
   List<PieSegmentData> _pieSegments = [];
   List<UsageAppModel> _topThreeApps = [];
+  List<CategoryUsageSummary> _categories = [];
 
   int _activeBlocksCount = 0;
   int _activeQuotasCount = 0;
   int _focusScore = 100;
 
-  // Premium, high-contrast palette for the dynamic segments
+  // Deep Work State Engine Parameters
+  bool _isDeepWorkActive = false;
+  Timer? _countdownTimer;
+  int _deepWorkSecondsRemaining = 1500; // 25 Minutes Standard
+
   final List<Color> _luxuryColors = [
     const Color(0xFF8B5CF6), // Royal Purple
     const Color(0xFF3B82F6), // Neon Sky Blue
@@ -35,11 +42,17 @@ class _DashboardViewState extends State<DashboardView> {
   void initState() {
     super.initState();
     _loadEnhancedMetrics();
+    _resumeDeepWorkSessionTimerIfNeeded();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadEnhancedMetrics() async {
     setState(() => _isLoading = true);
-
     final prefs = await SharedPreferences.getInstance();
     final List<String> blockedApps = prefs.getStringList('blocked_apps') ?? [];
     final String savedLimitsRaw = prefs.getString('app_limits_minutes') ?? '{}';
@@ -54,12 +67,11 @@ class _DashboardViewState extends State<DashboardView> {
     Duration calculatedTotal = Duration.zero;
     List<PieSegmentData> computedSegments = [];
     List<UsageAppModel> processedTopApps = [];
+    List<CategoryUsageSummary> computedCategories = [];
 
     if (permitted) {
       final List<UsageAppModel> rawUsageData = await _usageService
           .getDailyAppUsage();
-
-      // Keep only active apps to ensure precise percentage allocation
       final activeApps = rawUsageData
           .where((app) => app.totalForegroundTime.inMinutes > 0)
           .toList();
@@ -69,8 +81,11 @@ class _DashboardViewState extends State<DashboardView> {
       }
 
       if (activeApps.isNotEmpty) {
-        // Track the top 3 items for the quick list section below
         processedTopApps = activeApps.take(3).toList();
+        computedCategories = _usageService.computeCategoryBreakdown(
+          activeApps,
+          calculatedTotal,
+        );
 
         final int segmentLimit = activeApps.length > 4 ? 4 : activeApps.length;
         Duration assignedSegmentSum = Duration.zero;
@@ -87,7 +102,6 @@ class _DashboardViewState extends State<DashboardView> {
           );
         }
 
-        // Collapse remaining low-priority applications into "Others"
         if (calculatedTotal > assignedSegmentSum) {
           computedSegments.add(
             PieSegmentData(
@@ -100,23 +114,16 @@ class _DashboardViewState extends State<DashboardView> {
       }
     }
 
-    // DYNAMIC FOCUS SCORE CALCULATION ALGORITHM
-    // 100 base score. Linear subtraction based on daily usage time.
     double totalHours = calculatedTotal.inMinutes / 60.0;
     int calculatedScore = 100;
-
     if (totalHours <= 3.0) {
-      // Mild decay curve when under 3 hours
       calculatedScore = 100 - (totalHours * 5).toInt();
     } else if (totalHours > 3.0 && totalHours <= 4.0) {
-      // Step down deduction between 3 to 4 hours
       calculatedScore = 85 - ((totalHours - 3.0) * 15).toInt();
     } else {
-      // Drastic drop when crossing deep overuse markers (> 4 hours)
       calculatedScore = 70 - ((totalHours - 4.0) * 8).toInt();
     }
 
-    // Absolute boundary clamps
     if (calculatedScore > 100) calculatedScore = 100;
     if (calculatedScore < 5) calculatedScore = 5;
 
@@ -124,6 +131,7 @@ class _DashboardViewState extends State<DashboardView> {
       _totalScreentime = calculatedTotal;
       _pieSegments = computedSegments;
       _topThreeApps = processedTopApps;
+      _categories = computedCategories;
       _activeBlocksCount = blockedApps.length;
       _activeQuotasCount = quotaCount;
       _focusScore = calculatedScore;
@@ -131,11 +139,90 @@ class _DashboardViewState extends State<DashboardView> {
     });
   }
 
+  // Suggestion 4: Pomodoro Storage Session Validation
+  Future<void> _resumeDeepWorkSessionTimerIfNeeded() async {
+    final prefs = await SharedPreferences.getInstance();
+    _isDeepWorkActive = prefs.getBool('deep_work_active') ?? false;
+    final int targetExpiryTimestamp =
+        prefs.getInt('deep_work_expiry_time') ?? 0;
+
+    if (_isDeepWorkActive) {
+      final int remainingTimeSecs =
+          ((targetExpiryTimestamp - DateTime.now().millisecondsSinceEpoch) /
+                  1000)
+              .toInt();
+      if (remainingTimeSecs > 0) {
+        setState(() => _deepWorkSecondsRemaining = remainingTimeSecs);
+        _startCountdownEngine();
+      } else {
+        _stopDeepWorkSession();
+      }
+    }
+  }
+
+  void _startDeepWorkSession() async {
+    HapticFeedback.vibrate(); // Suggestion 2: Strong confirmation snap haptic trigger
+    final prefs = await SharedPreferences.getInstance();
+
+    setState(() {
+      _isDeepWorkActive = true;
+      _deepWorkSecondsRemaining = 1500;
+    });
+
+    await prefs.setBool('deep_work_active', true);
+    await prefs.setInt(
+      'deep_work_expiry_time',
+      DateTime.now().millisecondsSinceEpoch + (1500 * 1000),
+    );
+
+    // Hard-lock all parsed app packages during runtime countdown window
+    final rawApps = await _usageService.getDailyAppUsage();
+    final List<String> catchAllPackages = rawApps
+        .map((a) => a.packageName)
+        .toList();
+    await _usageService.syncBlockedApps(catchAllPackages);
+
+    _startCountdownEngine();
+  }
+
+  void _stopDeepWorkSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    _countdownTimer?.cancel();
+
+    setState(() {
+      _isDeepWorkActive = false;
+      _deepWorkSecondsRemaining = 1500;
+    });
+
+    await prefs.setBool('deep_work_active', false);
+    final List<String> historicBlocked =
+        prefs.getStringList('blocked_apps') ?? [];
+    await _usageService.syncBlockedApps(
+      historicBlocked,
+    ); // Restore standard rules
+    _loadEnhancedMetrics();
+  }
+
+  void _startCountdownEngine() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_deepWorkSecondsRemaining > 0) {
+        setState(() => _deepWorkSecondsRemaining--);
+      } else {
+        _stopDeepWorkSession();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_isLoading)
       return const Center(child: CircularProgressIndicator(strokeWidth: 3));
-    }
+
+    final int minutes = _deepWorkSecondsRemaining ~/ 60;
+    final int seconds = _deepWorkSecondsRemaining % 60;
+    final String timeStr =
+        '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 
     return Scaffold(
       body: RefreshIndicator(
@@ -174,35 +261,145 @@ class _DashboardViewState extends State<DashboardView> {
                 segments: _pieSegments,
                 totalScreentime: _totalScreentime,
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 36),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildMetricMiniCard(
-                      title: 'Shields Up',
-                      value: '$_activeBlocksCount apps',
-                      icon: Icons.gpp_maybe_outlined,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+              // Suggestion 4: Deep Work Pomodoro Card View
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _isDeepWorkActive
+                      ? const Color(0xFFEF4444).withOpacity(0.06)
+                      : Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _isDeepWorkActive
+                        ? const Color(0xFFEF4444).withOpacity(0.2)
+                        : Colors.white.withOpacity(0.01),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: _buildMetricMiniCard(
-                      title: 'Active Caps',
-                      value: '$_activeQuotasCount rules',
-                      icon: Icons.av_timer_rounded,
-                      color: Theme.of(context).colorScheme.primary,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isDeepWorkActive
+                              ? 'DEEP WORK FOCUS LOCKED'
+                              : 'Pomodoro Focus Mode',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _isDeepWorkActive
+                              ? 'All communications strictly blocked.'
+                              : 'Lock out all application tasks instantly.',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isDeepWorkActive
+                            ? const Color(0xFFEF4444)
+                            : Theme.of(context).colorScheme.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      onPressed: () {
+                        // Suggestion 2: Micro tactile light trigger click
+                        HapticFeedback.lightImpact();
+                        _isDeepWorkActive
+                            ? _stopDeepWorkSession()
+                            : _startDeepWorkSession();
+                      },
+                      child: Text(
+                        _isDeepWorkActive ? 'Abort ($timeStr)' : 'Start 25m',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              // Suggestion 3: Categorized Horizontal Stack Bars Visualizer
+              if (_categories.isNotEmpty) ...[
+                const Text(
+                  'Category Breakdown',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    children: List.generate(_categories.length, (idx) {
+                      final cat = _categories[idx];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  cat.categoryName,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  '${cat.totalDuration.inHours > 0 ? "${cat.totalDuration.inHours}h " : ""}${cat.totalDuration.inMinutes.remainder(60)}m',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontFamily: 'JetBrains Mono',
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            LinearProgressIndicator(
+                              value: cat.percentage,
+                              backgroundColor: Colors.white10,
+                              color: _luxuryColors[idx % _luxuryColors.length],
+                              minHeight: 5,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
 
               const Text(
                 'Top Time Consumers',
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
@@ -264,7 +461,6 @@ class _DashboardViewState extends State<DashboardView> {
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
-                              color: Colors.white,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -275,7 +471,6 @@ class _DashboardViewState extends State<DashboardView> {
                             fontFamily: 'JetBrains Mono',
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -299,15 +494,10 @@ class _DashboardViewState extends State<DashboardView> {
 
   Widget _buildDynamicFocusBadge() {
     double totalHours = _totalScreentime.inMinutes / 60.0;
-
-    Color badgeColor = const Color(0xFF10B981); // Default Green under 3 hours
-    if (totalHours > 3.0 && totalHours <= 4.0) {
-      badgeColor = const Color(0xFFF59E0B); // Adaptive Warning Yellow/Orange
-    } else if (totalHours > 4.0) {
-      badgeColor = const Color(
-        0xFFEF4444,
-      ); // Critical Overuse Red (e.g. 8-hour marker)
-    }
+    Color badgeColor = const Color(0xFF10B981);
+    if (totalHours > 3.0 && totalHours <= 4.0)
+      badgeColor = const Color(0xFFF59E0B);
+    if (totalHours > 4.0) badgeColor = const Color(0xFFEF4444);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -334,46 +524,6 @@ class _DashboardViewState extends State<DashboardView> {
               fontSize: 10,
               fontWeight: FontWeight.w500,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricMiniCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.01)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(color: Colors.grey, fontSize: 11),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  fontSize: 13,
-                ),
-              ),
-            ],
           ),
         ],
       ),

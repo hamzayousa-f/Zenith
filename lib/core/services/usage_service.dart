@@ -1,18 +1,30 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UsageAppModel {
-  final String packageName;
   final String appName;
+  final String packageName;
   final Duration totalForegroundTime;
   final Uint8List? iconBytes;
 
   UsageAppModel({
-    required this.packageName,
     required this.appName,
+    required this.packageName,
     required this.totalForegroundTime,
     this.iconBytes,
+  });
+}
+
+class CategoryUsageSummary {
+  final String categoryName;
+  final Duration totalDuration;
+  final double percentage;
+
+  CategoryUsageSummary({
+    required this.categoryName,
+    required this.totalDuration,
+    required this.percentage,
   });
 }
 
@@ -21,80 +33,109 @@ class UsageService {
     'com.hamza.wellbeing.zenith/usage',
   );
 
-  Future<bool> checkPermission() async {
-    try {
-      return await _channel.invokeMethod('checkUsagePermission');
-    } on PlatformException catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> openPermissionSettings() async {
-    try {
+  Future<bool> checkPermission() async =>
+      await _channel.invokeMethod('checkUsagePermission');
+  Future<bool> openPermissionSettings() async =>
       await _channel.invokeMethod('openPermissionSettings');
-    } on PlatformException catch (_) {}
-  }
-
-  Future<bool> checkOverlayPermission() async {
-    try {
-      return await _channel.invokeMethod('checkOverlayPermission');
-    } on PlatformException catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> openOverlaySettings() async {
-    try {
+  Future<bool> checkOverlayPermission() async =>
+      await _channel.invokeMethod('checkOverlayPermission');
+  Future<bool> openOverlaySettings() async =>
       await _channel.invokeMethod('openOverlaySettings');
-    } on PlatformException catch (_) {}
-  }
-
-  Future<void> syncBlockedApps(List<String> packages) async {
-    try {
-      await _channel.invokeMethod('syncBlockedApps', {'apps': packages});
-    } on PlatformException catch (_) {}
-  }
-
-  Future<void> syncAppLimits(Map<String, int> limits) async {
-    try {
+  Future<bool> syncBlockedApps(List<String> apps) async =>
+      await _channel.invokeMethod('syncBlockedApps', {'apps': apps});
+  Future<bool> syncAppLimits(Map<String, int> limits) async =>
       await _channel.invokeMethod('syncAppLimits', {'limits': limits});
-    } on PlatformException catch (_) {}
-  }
+  Future<bool> launchTargetApp(String packageName) async => await _channel
+      .invokeMethod('launchTargetApp', {'packageName': packageName});
 
   Future<List<UsageAppModel>> getDailyAppUsage() async {
     try {
-      final List<dynamic>? rawList = await _channel.invokeMethod<List<dynamic>>(
+      final List<dynamic> rawData = await _channel.invokeMethod(
         'getDailyAppUsage',
       );
-      if (rawList == null || rawList.isEmpty) return [];
 
-      final List<UsageAppModel> appsList = [];
-      for (var element in rawList) {
-        final Map<dynamic, dynamic> appData = element as Map<dynamic, dynamic>;
+      return rawData.map((item) {
+        final Map<dynamic, dynamic> map = item as Map<dynamic, dynamic>;
+        final String pkg = map['packageName'] ?? '';
+        final int ms = map['usageTime'] ?? 0;
+        final String base64Icon = map['appIcon'] ?? '';
+
         Uint8List? decodedIcon;
-        final String base64String = appData['appIcon']?.toString() ?? '';
-        if (base64String.isNotEmpty) {
+        if (base64Icon.isNotEmpty) {
           try {
-            decodedIcon = base64Decode(base64String);
+            decodedIcon = base64Decode(base64Icon.trim());
           } catch (_) {}
         }
-        appsList.add(
-          UsageAppModel(
-            packageName: appData['packageName'].toString(),
-            appName: appData['appName'].toString(),
-            totalForegroundTime: Duration(
-              milliseconds: appData['usageTime'] as int,
-            ),
-            iconBytes: decodedIcon,
+
+        return UsageAppModel(
+          appName: map['appName'] ?? pkg.split('.').last,
+          packageName: pkg,
+          totalForegroundTime: Duration(milliseconds: ms),
+          iconBytes: decodedIcon,
+        );
+      }).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Suggestion 3: App Categorization Mapper Engine
+  List<CategoryUsageSummary> computeCategoryBreakdown(
+    List<UsageAppModel> activeApps,
+    Duration totalTime,
+  ) {
+    if (totalTime.inMinutes <= 0 || activeApps.isEmpty) return [];
+
+    final Map<String, Duration> categoryAggregator = {
+      'Social Media': Duration.zero,
+      'Productivity': Duration.zero,
+      'Entertainment': Duration.zero,
+      'Utilities': Duration.zero,
+    };
+
+    for (var app in activeApps) {
+      final String pkg = app.packageName.toLowerCase();
+      String assignedCategory = 'Utilities';
+
+      if (pkg.contains('instagram') ||
+          pkg.contains('facebook') ||
+          pkg.contains('twitter') ||
+          pkg.contains('snapchat') ||
+          pkg.contains('tiktok')) {
+        assignedCategory = 'Social Media';
+      } else if (pkg.contains('youtube') ||
+          pkg.contains('netflix') ||
+          pkg.contains('pubg') ||
+          pkg.contains('game') ||
+          pkg.contains('vlc')) {
+        assignedCategory = 'Entertainment';
+      } else if (pkg.contains('studio') ||
+          pkg.contains('github') ||
+          pkg.contains('flutter') ||
+          pkg.contains('teams') ||
+          pkg.contains('slack') ||
+          pkg.contains('zoom')) {
+        assignedCategory = 'Productivity';
+      }
+
+      categoryAggregator[assignedCategory] =
+          categoryAggregator[assignedCategory]! + app.totalForegroundTime;
+    }
+
+    List<CategoryUsageSummary> summaries = [];
+    categoryAggregator.forEach((category, duration) {
+      if (duration.inMinutes > 0) {
+        summaries.add(
+          CategoryUsageSummary(
+            categoryName: category,
+            totalDuration: duration,
+            percentage: duration.inMinutes / totalTime.inMinutes,
           ),
         );
       }
-      appsList.sort(
-        (a, b) => b.totalForegroundTime.compareTo(a.totalForegroundTime),
-      );
-      return appsList;
-    } on PlatformException catch (_) {
-      return [];
-    }
+    });
+
+    summaries.sort((a, b) => b.totalDuration.compareTo(a.totalDuration));
+    return summaries;
   }
 }

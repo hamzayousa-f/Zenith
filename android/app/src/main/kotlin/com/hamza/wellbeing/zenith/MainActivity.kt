@@ -33,6 +33,10 @@ class MainActivity: FlutterActivity() {
             override fun onCreate(savedInstanceState: Bundle?) {
                 super.onCreate(savedInstanceState)
                 loadBlockedAppsFromNativeStorage()
+
+                // Start the automated midnight reset scheduler routine
+                MidnightResetReceiver.scheduleMidnightReset(this)
+
                 if (blockedAppsSet.isNotEmpty() || appLimitsMap.isNotEmpty()) {
                     startBlockerEngineLoop()
                 }
@@ -221,7 +225,6 @@ class MainActivity: FlutterActivity() {
                 calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
                 val startTime = calendar.timeInMillis
 
-                // Aggregating across a full system daily query interval window cleanly
                 val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
                 val aggregatedStats = HashMap<String, Long>()
 
@@ -230,7 +233,6 @@ class MainActivity: FlutterActivity() {
                         val totalTime = usageStat.totalTimeInForeground
                         if (totalTime > 0) {
                             val pkgName = usageStat.packageName
-                            // Ignore common launcher overlays and Android structural system spaces
                             if (!pkgName.contains("launcher") && !pkgName.contains("systemui") && pkgName != packageName) {
                                 aggregatedStats[pkgName] = (aggregatedStats[pkgName] ?: 0L) + totalTime
                             }
@@ -239,7 +241,6 @@ class MainActivity: FlutterActivity() {
                 }
 
                 val usageList = ArrayList<Map<String, Any>>()
-                // Sort items by absolute descending total time spent so highest app floats to the top instantly
                 val sortedAppsList = aggregatedStats.toList().sortedByDescending { it.second }
 
                 for ((pkgName, timeSpent) in sortedAppsList) {
