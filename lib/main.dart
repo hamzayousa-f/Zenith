@@ -13,7 +13,7 @@ class ZenithApp extends StatelessWidget {
     return MaterialApp(
       title: 'Zenith',
       debugShowCheckedModeBanner: false,
-      
+
       // Modern Bleeding-edge Dark Theme Schema matching master channel standards
       theme: ThemeData(
         useMaterial3: true,
@@ -26,8 +26,17 @@ class ZenithApp extends StatelessWidget {
           error: Color(0xFFEF4444),
         ),
         textTheme: const TextTheme(
-          headlineLarge: TextStyle(fontFamily: 'JetBrains Mono', fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
-          bodyLarge: TextStyle(fontFamily: 'Inter', fontSize: 16, color: Color(0 prison9E9E9F)),
+          headlineLarge: TextStyle(
+            fontFamily: 'JetBrains Mono',
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+          bodyLarge: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 16,
+            color: Color(0xFF9E9E9F),
+          ),
         ),
       ),
       home: const MainLayoutBridge(),
@@ -35,7 +44,7 @@ class ZenithApp extends StatelessWidget {
   }
 }
 
-/// Central Bottom Navigation Controller Bridge 
+/// Central Bottom Navigation Controller Bridge
 class MainLayoutBridge extends StatefulWidget {
   const MainLayoutBridge({super.key});
 
@@ -48,9 +57,24 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
 
   // Placeholder views for our feature-first directories
   final List<Widget> _pages = [
-    const Center(child: Text('📊 Dashboard Feature Layer Active', style: TextStyle(fontSize: 16, color: Colors.white70))),
-    const Center(child: Text('📈 Analytics View Layer Active', style: TextStyle(fontSize: 16, color: Colors.white70))),
-    const Center(child: Text('🛡️ Blocker Rules Layer Active', style: TextStyle(fontSize: 16, color: Colors.white70))),
+    const Center(
+      child: Text(
+        '📊 Dashboard Feature Layer Active',
+        style: TextStyle(fontSize: 16, color: Colors.white70),
+      ),
+    ),
+    const Center(
+      child: Text(
+        '📈 Analytics View Layer Active',
+        style: TextStyle(fontSize: 16, color: Colors.white70),
+      ),
+    ),
+    const Center(
+      child: Text(
+        '🛡️ Blocker Rules Layer Active',
+        style: TextStyle(fontSize: 16, color: Colors.white70),
+      ),
+    ),
   ];
 
   @override
@@ -59,10 +83,16 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
       body: SafeArea(child: _pages[_currentIndex]),
       bottomNavigationBar: NavigationBarTheme(
         data: NavigationBarThemeData(
-          indicatorColor: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+          indicatorColor: Theme.of(
+            context,
+          ).colorScheme.primary.withOpacity(0.15),
           labelTextStyle: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
-              return TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 12);
+              return TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              );
             }
             return const TextStyle(color: Colors.grey, fontSize: 12);
           }),
@@ -79,17 +109,26 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
           destinations: [
             NavigationDestination(
               icon: const Icon(Icons.dashboard_customize_outlined),
-              selectedIcon: Icon(Icons.dashboard_customize, color: Theme.of(context).colorScheme.primary),
+              selectedIcon: Icon(
+                Icons.dashboard_customize,
+                color: Theme.of(context).colorScheme.primary,
+              ),
               label: 'Dashboard',
             ),
             NavigationDestination(
               icon: const Icon(Icons.bar_chart_outlined),
-              selectedIcon: Icon(Icons.bar_chart_rounded, color: Theme.of(context).colorScheme.primary),
+              selectedIcon: Icon(
+                Icons.bar_chart_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
               label: 'Analytics',
             ),
             NavigationDestination(
               icon: const Icon(Icons.gpp_maybe_outlined),
-              selectedIcon: Icon(Icons.gpp_maybe_rounded, color: Theme.of(context).colorScheme.primary),
+              selectedIcon: Icon(
+                Icons.gpp_maybe_rounded,
+                color: Theme.of(context).colorScheme.primary,
+              ),
               label: 'Blocker',
             ),
           ],
