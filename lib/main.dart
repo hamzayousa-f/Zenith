@@ -6,6 +6,7 @@ import 'features/blocker/presentation/blocker_view.dart';
 import 'features/blocker/presentation/liquid_shield_overlay.dart';
 
 void main() {
+  // Ensure framework bindings are ready before method channel setup
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ZenithApp());
 }
@@ -70,7 +71,8 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
   @override
   void initState() {
     super.initState();
-    // Establish real-time tracking pipelines for platform mutations
+
+    // Explicitly listen for native background interceptor methods
     _channel.setMethodCallHandler((call) async {
       if (call.method == "triggerNativeShield") {
         final String appLabel = call.arguments.toString();
@@ -116,7 +118,7 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
           ),
         ),
 
-        // Render Liquid Shading Canvas directly over layout frameworks dynamically
+        // Liquid Shading Canvas positions itself instantly above all structural layers
         if (_isShieldActive && _interceptedApp != null)
           Positioned.fill(
             child: LiquidShieldOverlay(
@@ -126,7 +128,8 @@ class _MainLayoutBridgeState extends State<MainLayoutBridge> {
                   _isShieldActive = false;
                   _interceptedApp = null;
                 });
-                // Minimize back to hardware home paths safely
+
+                // Minimize application back to hardware home paths safely on dismiss
                 SystemNavigator.pop();
               },
             ),
