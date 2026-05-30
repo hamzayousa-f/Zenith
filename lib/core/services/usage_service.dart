@@ -23,10 +23,7 @@ class UsageService {
 
   Future<bool> checkPermission() async {
     try {
-      final bool hasPermission = await _channel.invokeMethod(
-        'checkUsagePermission',
-      );
-      return hasPermission;
+      return await _channel.invokeMethod('checkUsagePermission');
     } on PlatformException catch (_) {
       return false;
     }
@@ -38,31 +35,43 @@ class UsageService {
     } on PlatformException catch (_) {}
   }
 
+  Future<bool> checkOverlayPermission() async {
+    try {
+      return await _channel.invokeMethod('checkOverlayPermission');
+    } on PlatformException catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> openOverlaySettings() async {
+    try {
+      await _channel.invokeMethod('openOverlaySettings');
+    } on PlatformException catch (_) {}
+  }
+
+  Future<void> syncBlockedApps(List<String> packages) async {
+    try {
+      await _channel.invokeMethod('syncBlockedApps', {'apps': packages});
+    } on PlatformException catch (_) {}
+  }
+
   Future<List<UsageAppModel>> getDailyAppUsage() async {
     try {
       final List<dynamic>? rawList = await _channel.invokeMethod<List<dynamic>>(
         'getDailyAppUsage',
       );
-
-      if (rawList == null || rawList.isEmpty) {
-        return [];
-      }
+      if (rawList == null || rawList.isEmpty) return [];
 
       final List<UsageAppModel> appsList = [];
-
       for (var element in rawList) {
         final Map<dynamic, dynamic> appData = element as Map<dynamic, dynamic>;
-
         Uint8List? decodedIcon;
         final String base64String = appData['appIcon']?.toString() ?? '';
         if (base64String.isNotEmpty) {
           try {
             decodedIcon = base64Decode(base64String);
-          } catch (_) {
-            decodedIcon = null;
-          }
+          } catch (_) {}
         }
-
         appsList.add(
           UsageAppModel(
             packageName: appData['packageName'].toString(),
@@ -74,8 +83,6 @@ class UsageService {
           ),
         );
       }
-
-      // Sort descending based on heaviest execution drains
       appsList.sort(
         (a, b) => b.totalForegroundTime.compareTo(a.totalForegroundTime),
       );

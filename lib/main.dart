@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'features/dashboard/presentation/dashboard_view.dart';
 import 'features/analytics/presentation/analytics_view.dart';
 import 'features/blocker/presentation/blocker_view.dart';
+import 'features/blocker/presentation/liquid_shield_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,17 +18,15 @@ class ZenithApp extends StatelessWidget {
     return MaterialApp(
       title: 'Zenith',
       debugShowCheckedModeBanner: false,
-
-      // Modern Bleeding-edge Dark Theme Schema matching master channel standards
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF0D0D0F),
         colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF8B5CF6), // Premium minimalist violet focus accent
-          secondary: Color(0xFF10B981), // Emerald accent for healthy stats
-          surface: Color(0xFF16161A), // Clean glassmorphic container cards
-          error: Color(0xFFEF4444), // Crimson accent for active blocker shields
+          primary: Color(0xFF8B5CF6),
+          secondary: Color(0xFF10B981),
+          surface: Color(0xFF16161A),
+          error: Color(0xFFEF4444),
         ),
         textTheme: const TextTheme(
           headlineLarge: TextStyle(
@@ -47,7 +47,6 @@ class ZenithApp extends StatelessWidget {
   }
 }
 
-/// Central Bottom Navigation Controller Bridge
 class MainLayoutBridge extends StatefulWidget {
   const MainLayoutBridge({super.key});
 
@@ -57,73 +56,82 @@ class MainLayoutBridge extends StatefulWidget {
 
 class _MainLayoutBridgeState extends State<MainLayoutBridge> {
   int _currentIndex = 0;
+  static const _channel = MethodChannel('com.hamza.wellbeing.zenith/usage');
 
-  // Feature views hooked into the layout bridge controller
+  String? _interceptedApp;
+  bool _isShieldActive = false;
+
   final List<Widget> _pages = [
     const DashboardView(),
     const AnalyticsView(),
-    const BlockerView(), // Swapped final static placeholder text for our operational shield rules dashboard
+    const BlockerView(),
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // Establish real-time tracking pipelines for platform mutations
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == "triggerNativeShield") {
+        final String appLabel = call.arguments.toString();
+        _activateShield(appLabel);
+      }
+    });
+  }
+
+  void _activateShield(String appLabel) {
+    if (_isShieldActive) return;
+    setState(() {
+      _interceptedApp = appLabel;
+      _isShieldActive = true;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(child: _pages[_currentIndex]),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          indicatorColor: Theme.of(
-            context,
-          ).colorScheme.primary.withOpacity(0.15),
-          labelTextStyle: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return TextStyle(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              );
-            }
-            return const TextStyle(color: Colors.grey, fontSize: 12);
-          }),
+    return Stack(
+      children: [
+        Scaffold(
+          body: SafeArea(child: _pages[_currentIndex]),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (int index) =>
+                setState(() => _currentIndex = index),
+            backgroundColor: const Color(0xFF121214),
+            elevation: 0,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.dashboard_customize_outlined),
+                label: 'Dashboard',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.bar_chart_outlined),
+                label: 'Analytics',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.gpp_maybe_outlined),
+                label: 'Blocker',
+              ),
+            ],
+          ),
         ),
-        child: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: (int index) {
-            setState(() {
-              _currentIndex = index;
-            });
-          },
-          backgroundColor: const Color(0xFF121214),
-          elevation: 0,
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.dashboard_customize_outlined),
-              selectedIcon: Icon(
-                Icons.dashboard_customize,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              label: 'Dashboard',
+
+        // Render Liquid Shading Canvas directly over layout frameworks dynamically
+        if (_isShieldActive && _interceptedApp != null)
+          Positioned.fill(
+            child: LiquidShieldOverlay(
+              appName: _interceptedApp!,
+              onDismiss: () {
+                setState(() {
+                  _isShieldActive = false;
+                  _interceptedApp = null;
+                });
+                // Minimize back to hardware home paths safely
+                SystemNavigator.pop();
+              },
             ),
-            NavigationDestination(
-              icon: const Icon(Icons.bar_chart_outlined),
-              selectedIcon: Icon(
-                Icons.bar_chart_rounded,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              label: 'Analytics',
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.gpp_maybe_outlined),
-              selectedIcon: Icon(
-                Icons.gpp_maybe_rounded,
-                color: Theme.of(context)
-                    .colorScheme
-                    .error, // Colors switch to red when selecting blocker parameters
-              ),
-              label: 'Blocker',
-            ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }

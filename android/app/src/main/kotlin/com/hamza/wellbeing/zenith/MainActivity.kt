@@ -9,6 +9,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.provider.Settings
 import android.util.Base64
@@ -21,117 +23,124 @@ import java.util.Calendar
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.hamza.wellbeing.zenith/usage"
+    private var blockerHandler: Handler? = null
+        private var blockedAppsSet = HashSet<String>()
 
-    override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
+        override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
+            super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "checkUsagePermission" -> {
-                    result.success(hasUsageStatsPermission())
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "checkUsagePermission" -> result.success(hasUsageStatsPermission())
+                    "openPermissionSettings" -> {
+                        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                        result.success(true)
+                    }
+                    "checkOverlayPermission" -> result.success(Settings.canDrawOverlays(this))
+                    "openOverlaySettings" -> {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                        result.success(true)
+                    }
+                    "syncBlockedApps" -> {
+                        val appsList = call.argument<List<String>>("apps") ?: listOf()
+                        blockedAppsSet = HashSet(appsList)
+                        if (blockedAppsSet.isNotEmpty() && blockerHandler == null) {
+                            startBlockerEngineLoop()
+                        }
+                        result.success(true)
+                    }
+                    "getDailyAppUsage" -> {
+                        if (hasUsageStatsPermission()) result.success(fetchDailyUsageData())
+                            else result.error("PERMISSION_DENIED", "Permission not granted.", null)
+                    }
+                    else -> result.notImplemented()
                 }
-                "openPermissionSettings" -> {
-                    val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                    startActivity(intent)
-                    result.success(true)
+            }
+        }
+
+        private fun hasUsageStatsPermission(): Boolean {
+            val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+            val mode = appOps.noteOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+            return mode == AppOpsManager.MODE_ALLOWED
+        }
+
+        private fun startBlockerEngineLoop() {
+            blockerHandler = Handler(Looper.getMainLooper())
+            blockerHandler?.post(object : Runnable {
+                override fun run() {
+                    val currentTopPackage = getTopPackageName()
+                    if (blockedAppsSet.contains(currentTopPackage)) {
+                        // Trigger the absolute focus interceptor layer inside our running Flutter application context
+                        val intent = Intent(this@MainActivity, MainActivity::class.java)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        intent.putExtra("trigger_shield", true)
+                        intent.putExtra("shield_package", currentTopPackage)
+                        startActivity(intent)
+                    }
+                    blockerHandler?.postDelayed(this, 600) // Poll device pipelines at high speed
                 }
-                "getDailyAppUsage" -> {
-                    if (hasUsageStatsPermission()) {
-                        result.success(fetchDailyUsageData())
-                    } else {
-                        result.error("PERMISSION_DENIED", "Usage statistics permission not granted.", null)
+            })
+        }
+
+        private fun getTopPackageName(): String {
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val time = System.currentTimeMillis()
+            val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 10000, time)
+            if (stats != null && stats.isNotEmpty()) {
+                var sortedStats = stats.sortedByDescending { it.lastTimeUsed }
+                return sortedStats[0].packageName
+            }
+            return ""
+        }
+
+        private fun drawableToBase64(drawable: Drawable): String {
+            val bitmap = if (drawable is BitmapDrawable) drawable.bitmap else {
+                val bmp = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bmp
+            }
+            val outputStream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream)
+            return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+        }
+
+        private fun fetchDailyUsageData(): List<Map<String, Any>> {
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val pm = packageManager
+            val calendar = Calendar.getInstance()
+            val endTime = calendar.timeInMillis
+            calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
+            val startTime = calendar.timeInMillis
+
+            val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+            val aggregatedStats = HashMap<String, Long>()
+            if (stats != null) {
+                for (usageStat in stats) {
+                    val totalTime = usageStat.totalTimeInForeground
+                    if (totalTime > 0) {
+                        val pkgName = usageStat.packageName
+                        if (!pkgName.contains("launcher") && !pkgName.contains("systemui") && pkgName != packageName) {
+                            aggregatedStats[pkgName] = (aggregatedStats[pkgName] ?: 0L) + totalTime
+                        }
                     }
                 }
-                else -> {
-                    result.notImplemented()
+            }
+
+            val usageList = ArrayList<Map<String, Any>>()
+            for ((pkgName, timeSpent) in aggregatedStats) {
+                val appData = HashMap<String, Any>()
+                appData["packageName"] = pkgName; appData["usageTime"] = timeSpent
+                try {
+                    val appInfo = pm.getApplicationInfo(pkgName, 0)
+                    appData["appName"] = pm.getApplicationLabel(appInfo).toString()
+                    appData["appIcon"] = drawableToBase64(pm.getApplicationIcon(appInfo))
+                } catch (e: PackageManager.NameNotFoundException) {
+                    appData["appName"] = pkgName.split(".").last(); appData["appIcon"] = ""
                 }
+                usageList.add(appData)
             }
+            return usageList
         }
-    }
-
-    private fun hasUsageStatsPermission(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.noteOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            Process.myUid(),
-                                        packageName
-        )
-        return mode == AppOpsManager.MODE_ALLOWED
-    }
-
-    private fun fetchDailyUsageData(): List<Map<String, Any>> {
-        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val pm = packageManager
-
-        val calendar = Calendar.getInstance()
-        val endTime = calendar.timeInMillis
-
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        val startTime = calendar.timeInMillis
-
-        val stats = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            startTime,
-            endTime
-        )
-
-        val aggregatedStats = HashMap<String, Long>()
-        if (stats != null) {
-            for (usageStat in stats) {
-                val totalTime = usageStat.totalTimeInForeground
-                if (totalTime > 0) {
-                    val pkgName = usageStat.packageName
-                    if (!pkgName.contains("com.android.launcher") && !pkgName.contains("com.android.systemui")) {
-                        aggregatedStats[pkgName] = (aggregatedStats[pkgName] ?: 0L) + totalTime
-                    }
-                }
-            }
-        }
-
-        val usageList = ArrayList<Map<String, Any>>()
-
-        for ((pkgName, timeSpent) in aggregatedStats) {
-            val appData = HashMap<String, Any>()
-            appData["packageName"] = pkgName
-            appData["usageTime"] = timeSpent
-
-            try {
-                val appInfo = pm.getApplicationInfo(pkgName, 0)
-                appData["appName"] = pm.getApplicationLabel(appInfo).toString()
-
-                // Get App Icon and transform into Base64 format string safely
-                val iconDrawable = pm.getApplicationIcon(appInfo)
-                val base64Icon = drawableToBase64(iconDrawable)
-                appData["appIcon"] = base64Icon
-            } catch (e: PackageManager.NameNotFoundException) {
-                appData["appName"] = pkgName.split(".").last()
-                appData["appIcon"] = ""
-            }
-            usageList.add(appData)
-        }
-        return usageList
-    }
-
-    private fun drawableToBase64(drawable: Drawable): String {
-        val bitmap = if (drawable is BitmapDrawable) {
-            drawable.bitmap
-        } else {
-            val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 100
-            val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 100
-            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bmp)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-            bmp
-        }
-
-        val outputStream = ByteArrayOutputStream()
-        // Compress heavily to maintain fast execution pipelines over method channel data pipes
-        bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream)
-        val byteArray = outputStream.toByteArray()
-        return Base64.encodeToString(byteArray, Base64.NO_WRAP)
-    }
 }
