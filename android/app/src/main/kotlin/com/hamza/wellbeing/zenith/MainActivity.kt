@@ -1,11 +1,13 @@
 package com.hamza.wellbeing.zenith
 
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
@@ -41,7 +43,12 @@ class MainActivity: FlutterActivity() {
             override fun onCreate(savedInstanceState: Bundle?) {
                 super.onCreate(savedInstanceState)
                 loadBlockedAppsFromNativeStorage()
-                MidnightResetReceiver.scheduleMidnightReset(this)
+
+                try {
+                    MidnightResetReceiver.scheduleMidnightReset(this)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
 
                 if (hasUsageStatsPermission() && (blockedAppsSet.isNotEmpty() || appLimitsMap.isNotEmpty())) {
                     startBlockerEngineLoop()
@@ -222,26 +229,44 @@ class MainActivity: FlutterActivity() {
 
             private fun getTopPackageName(): String {
                 val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-                val time = System.currentTimeMillis()
-                val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 10000, time)
-                if (stats != null && stats.isNotEmpty()) {
-                    return stats.sortedByDescending { it.lastTimeUsed }[0].packageName
+                val endTime = System.currentTimeMillis()
+                val beginTime = endTime - 10000
+
+                val events = usageStatsManager.queryEvents(beginTime, endTime)
+                val event = UsageEvents.Event()
+                var currentPackage = ""
+
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(event)
+                    if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                        currentPackage = event.packageName
+                    }
                 }
-                return ""
+                return currentPackage
             }
 
             private fun getTodayUsageMap(): Map<String, Long> {
                 val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
                 val calendar = Calendar.getInstance()
-                val endTime = calendar.timeInMillis
-                calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
+                val endTime = System.currentTimeMillis()
+
+                calendar.set(Calendar.HOUR_OF_DAY, 0)
+                calendar.set(Calendar.MINUTE, 0)
+                calendar.set(Calendar.SECOND, 0)
+                calendar.set(Calendar.MILLISECOND, 0)
                 val startTime = calendar.timeInMillis
 
                 val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
                 val usageMap = HashMap<String, Long>()
-                if (stats != null) {
-                    for (stat in stats) {
-                        usageMap[stat.packageName] = (usageMap[stat.packageName] ?: 0L) + stat.totalTimeInForeground
+
+                stats?.forEach { stat ->
+                    val usageTime = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        stat.totalTimeVisible
+                    } else {
+                        stat.totalTimeInForeground
+                    }
+                    if (usageTime > 0) {
+                        usageMap[stat.packageName] = usageTime
                     }
                 }
                 return usageMap
@@ -251,24 +276,42 @@ class MainActivity: FlutterActivity() {
                 val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
                 val calendar = Calendar.getInstance()
                 val endTime = calendar.timeInMillis
-                calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0)
+                calendar.set(Calendar.HOUR_OF_DAY, 0); calendar.set(Calendar.MINUTE, 0); calendar.set(Calendar.SECOND, 0); calendar.set(Calendar.MILLISECOND, 0)
                 val startTime = calendar.timeInMillis
 
-                val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
-                val aggregatedStats = HashMap<String, Long>()
+                val eventMap = HashMap<String, Long>()
+                val lastEventMap = HashMap<String, Long>()
+                var isScreenInteractive = false
 
-                if (stats != null) {
-                    for (usageStat in stats) {
-                        val totalTime = usageStat.totalTimeInForeground
-                        if (totalTime > 0) {
-                            val pkgName = usageStat.packageName
-                            if (!pkgName.contains("launcher") && !pkgName.contains("systemui") && pkgName != packageName) {
-                                aggregatedStats[pkgName] = (aggregatedStats[pkgName] ?: 0L) + totalTime
-                            }
-                        }
-                    }
+                val events = usageStatsManager.queryEvents(startTime, endTime)
+                val event = UsageEvents.Event()
+
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(event)
+                    val pkg = event.packageName
+
+                    if (event.eventType == UsageEvents.Event.SCREEN_INTERACTIVE) isScreenInteractive = true
+                        if (event.eventType == UsageEvents.Event.SCREEN_NON_INTERACTIVE) isScreenInteractive = false
+
+                            if (pkg.startsWith("android") || pkg.startsWith("com.android.") || pkg.contains("launcher") || pkg == packageName) continue
+
+                                if (isScreenInteractive) {
+                                    when (event.eventType) {
+                                        UsageEvents.Event.MOVE_TO_FOREGROUND -> lastEventMap[pkg] = event.timeStamp
+                                        UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                                            val startTimeStamp = lastEventMap[pkg]
+                                            if (startTimeStamp != null) {
+                                                val duration = event.timeStamp - startTimeStamp
+                                                if (duration > 1000) {
+                                                    eventMap[pkg] = (eventMap[pkg] ?: 0L) + duration
+                                                }
+                                                lastEventMap.remove(pkg)
+                                            }
+                                        }
+                                    }
+                                }
                 }
-                return aggregatedStats
+                return eventMap
             }
 
             private fun resolveAppDetailsWithMemoryCache(rawStats: Map<String, Long>): List<Map<String, Any>> {
@@ -284,13 +327,11 @@ class MainActivity: FlutterActivity() {
                     var resolvedName: String
                     var resolvedIconBase64: String
 
-                    // Thread-safe isolation check over cache metrics maps
                     synchronized(appLabelCache) {
                         if (appLabelCache.containsKey(pkgName)) {
                             resolvedName = appLabelCache[pkgName] ?: ""
                             resolvedIconBase64 = appIconCache[pkgName] ?: ""
                         } else {
-                            // Cache Miss: Perform lookups safely on this background thread container
                             val appInfo = dynamicRegistry[pkgName]
                             if (appInfo != null) {
                                 try {
@@ -310,7 +351,6 @@ class MainActivity: FlutterActivity() {
                                     resolvedIconBase64 = ""
                                 }
                             }
-                            // Commit to long-term memory allocation structures
                             if (resolvedName.isNotEmpty()) appLabelCache[pkgName] = resolvedName
                                 appIconCache[pkgName] = resolvedIconBase64
                         }
@@ -346,7 +386,7 @@ class MainActivity: FlutterActivity() {
                     bmp
                 }
                 val outputStream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream) // Dropped to 80% to vastly compress MethodChannel transfer load bandwidth
+                bitmap.compress(Bitmap.CompressFormat.PNG, 80, outputStream)
                 return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
             }
 }

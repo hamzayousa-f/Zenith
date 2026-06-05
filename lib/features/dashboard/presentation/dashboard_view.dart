@@ -32,11 +32,12 @@ class _DashboardViewState extends State<DashboardView>
   Timer? _countdownTimer;
   int _deepWorkSecondsRemaining = 1500;
 
+  // Premium, harmonious color palette
   final List<Color> _luxuryColors = [
-    const Color(0xFF8B5CF6),
-    const Color(0xFF3B82F6),
-    const Color(0xFF10B981),
-    const Color(0xFFF59E0B),
+    const Color(0xFF6366F1), // Indigo
+    const Color(0xFF3B82F6), // Sapphire Blue
+    const Color(0xFF10B981), // Emerald
+    const Color(0xFFF59E0B), // Amber
   ];
 
   @override
@@ -56,7 +57,6 @@ class _DashboardViewState extends State<DashboardView>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-verify permission state flags immediately when returning from system settings panels
     if (state == AppLifecycleState.resumed) {
       _checkPermissionsAndLoad();
     }
@@ -129,7 +129,7 @@ class _DashboardViewState extends State<DashboardView>
           PieSegmentData(
             appName: 'Others',
             timeSpent: calculatedTotal - assignedSegmentSum,
-            color: Colors.white24,
+            color: Colors.white12,
           ),
         );
       }
@@ -181,7 +181,7 @@ class _DashboardViewState extends State<DashboardView>
   }
 
   void _startDeepWorkSession() async {
-    HapticFeedback.vibrate();
+    HapticFeedback.lightImpact();
     final prefs = await SharedPreferences.getInstance();
 
     setState(() {
@@ -233,45 +233,82 @@ class _DashboardViewState extends State<DashboardView>
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading)
-      return const Center(child: CircularProgressIndicator(strokeWidth: 3));
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: const Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (!_hasPermission) {
       return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.all(32.0),
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
-                  Icons.bar_chart_rounded,
-                  size: 64,
-                  color: Colors.grey,
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withOpacity(0.06),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.bubble_chart_rounded,
+                    size: 44,
+                    color: Color(0xFF6366F1),
+                  ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 Text(
                   'Usage Stats Needed',
-                  style: Theme.of(context).textTheme.headlineMedium,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.5,
+                  ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'Zenith requires system stats tracking data access permission to populate dashboard trends dynamically.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, height: 1.4),
+                  style: TextStyle(
+                    color: isDark ? Colors.white60 : Colors.black54,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 36),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 54),
+                    elevation: 0,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                   onPressed: () => _usageService.openPermissionSettings(),
                   child: const Text(
                     'Grant Access Permission',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      letterSpacing: -0.2,
+                    ),
                   ),
                 ),
               ],
@@ -287,16 +324,19 @@ class _DashboardViewState extends State<DashboardView>
         '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 
     return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
         onRefresh: _checkPermissionsAndLoad,
-        color: Theme.of(context).colorScheme.primary,
-        backgroundColor: Theme.of(context).colorScheme.surface,
+        color: const Color(0xFF6366F1),
+        backgroundColor: Theme.of(context).cardColor,
+        edgeOffset: 40,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.fromLTRB(24.0, 64.0, 24.0, 24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Header Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -305,78 +345,137 @@ class _DashboardViewState extends State<DashboardView>
                     children: [
                       Text(
                         'Zenith App',
-                        style: Theme.of(context).textTheme.headlineLarge,
+                        style: Theme.of(context).textTheme.headlineLarge
+                            ?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -1.0,
+                            ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'Your digital awareness hub.',
-                        style: Theme.of(context).textTheme.bodyLarge,
+                        style: TextStyle(
+                          color: isDark ? Colors.white38 : Colors.black45,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                     ],
                   ),
-                  _buildDynamicFocusBadge(),
+                  _buildDynamicFocusBadge(isDark),
                 ],
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
-              AppPieChart(
-                segments: _pieSegments,
-                totalScreentime: _totalScreentime,
-              ),
-              const SizedBox(height: 36),
-
+              // Chart Layout Wrapper
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 24,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.015)
+                      : Colors.black.withOpacity(0.015),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.04)
+                        : Colors.black.withOpacity(0.04),
+                  ),
+                ),
+                child: AppPieChart(
+                  segments: _pieSegments,
+                  totalScreentime: _totalScreentime,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Focus Mode Session Deck Card
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: _isDeepWorkActive
-                      ? const Color(0xFFEF4444).withOpacity(0.06)
-                      : Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(16),
+                      ? const Color(0xFFEF4444).withOpacity(0.04)
+                      : (isDark
+                            ? Colors.white.withOpacity(0.02)
+                            : Colors.black.withOpacity(0.02)),
+                  borderRadius: BorderRadius.circular(24),
                   border: Border.all(
                     color: _isDeepWorkActive
-                        ? const Color(0xFFEF4444).withOpacity(0.2)
-                        : Colors.white.withOpacity(0.01),
+                        ? const Color(0xFFEF4444).withOpacity(0.25)
+                        : (isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : Colors.black.withOpacity(0.05)),
+                    width: 1,
                   ),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isDeepWorkActive
-                              ? 'DEEP WORK FOCUS LOCKED'
-                              : 'Pomodoro Focus Mode',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (_isDeepWorkActive)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Icons.lens,
+                                    size: 8,
+                                    color: Color(0xFFEF4444),
+                                  ),
+                                ),
+                              Text(
+                                _isDeepWorkActive
+                                    ? 'DEEP WORK ACTIVE'
+                                    : 'Pomodoro Focus Mode',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  letterSpacing: 0.2,
+                                  color: _isDeepWorkActive
+                                      ? const Color(0xFFEF4444)
+                                      : (isDark
+                                            ? Colors.white
+                                            : Colors.black87),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _isDeepWorkActive
-                              ? 'All communications strictly blocked.'
-                              : 'Lock out all application tasks instantly.',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 11,
+                          const SizedBox(height: 4),
+                          Text(
+                            _isDeepWorkActive
+                                ? 'All non-essential apps locked.'
+                                : 'Instantly limit incoming distractions.',
+                            style: TextStyle(
+                              color: isDark ? Colors.white38 : Colors.black45,
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 12),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _isDeepWorkActive
                             ? const Color(0xFFEF4444)
-                            : Theme.of(context).colorScheme.primary,
+                            : const Color(0xFF6366F1),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
                       ),
                       onPressed: () {
-                        HapticFeedback.lightImpact();
+                        HapticFeedback.mediumImpact();
                         _isDeepWorkActive
                             ? _stopDeepWorkSession()
                             : _startDeepWorkSession();
@@ -384,38 +483,49 @@ class _DashboardViewState extends State<DashboardView>
                       child: Text(
                         _isDeepWorkActive ? 'Abort ($timeStr)' : 'Start 25m',
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
+              // Category Breakdown Sheet
               if (_categories.isNotEmpty) ...[
-                const Text(
-                  'Category Breakdown',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 14),
+                  child: Text(
+                    'Category Breakdown',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.3,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(16),
+                    color: isDark
+                        ? Colors.white.withOpacity(0.015)
+                        : Colors.black.withOpacity(0.015),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.04)
+                          : Colors.black.withOpacity(0.04),
+                    ),
                   ),
                   child: Column(
                     children: List.generate(_categories.length, (idx) {
                       final cat = _categories[idx];
+                      final bool isLast = idx == _categories.length - 1;
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 12.0),
+                        padding: EdgeInsets.only(bottom: isLast ? 0 : 18.0),
                         child: Column(
                           children: [
                             Row(
@@ -423,28 +533,38 @@ class _DashboardViewState extends State<DashboardView>
                               children: [
                                 Text(
                                   cat.categoryName,
-                                  style: const TextStyle(
-                                    fontSize: 13,
+                                  style: TextStyle(
+                                    fontSize: 14,
                                     fontWeight: FontWeight.w500,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
                                   ),
                                 ),
                                 Text(
                                   '${cat.totalDuration.inHours > 0 ? "${cat.totalDuration.inHours}h " : ""}${cat.totalDuration.inMinutes.remainder(60)}m',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontFamily: 'JetBrains Mono',
-                                    color: Colors.grey,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.black45,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 6),
-                            LinearProgressIndicator(
-                              value: cat.percentage,
-                              backgroundColor: Colors.white10,
-                              color: _luxuryColors[idx % _luxuryColors.length],
-                              minHeight: 5,
-                              borderRadius: BorderRadius.circular(2),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: LinearProgressIndicator(
+                                value: cat.percentage,
+                                backgroundColor: isDark
+                                    ? Colors.white10
+                                    : Colors.black12,
+                                color:
+                                    _luxuryColors[idx % _luxuryColors.length],
+                                minHeight: 6,
+                              ),
                             ),
                           ],
                         ),
@@ -452,31 +572,45 @@ class _DashboardViewState extends State<DashboardView>
                     }),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
               ],
 
-              const Text(
-                'Top Time Consumers',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+              // Top Consumers Area
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 14),
+                child: Text(
+                  'Top Time Consumers',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.3,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
 
               if (_topThreeApps.isEmpty)
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    borderRadius: BorderRadius.circular(14),
+                    color: isDark
+                        ? Colors.white.withOpacity(0.015)
+                        : Colors.black.withOpacity(0.015),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.04)
+                          : Colors.black.withOpacity(0.04),
+                    ),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
                       'No prominent usage logs registered yet.',
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                      style: TextStyle(
+                        color: isDark ? Colors.white30 : Colors.black38,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 )
@@ -485,7 +619,7 @@ class _DashboardViewState extends State<DashboardView>
                   final app = _topThreeApps[index];
                   final Color associationColor = index < _luxuryColors.length
                       ? _luxuryColors[index]
-                      : Colors.white30;
+                      : Colors.grey;
                   final int percent = _totalScreentime.inMinutes > 0
                       ? ((app.totalForegroundTime.inMinutes /
                                     _totalScreentime.inMinutes) *
@@ -494,59 +628,87 @@ class _DashboardViewState extends State<DashboardView>
                       : 0;
 
                   return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
+                    margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
+                      horizontal: 16,
+                      vertical: 14,
                     ),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      borderRadius: BorderRadius.circular(14),
+                      color: isDark
+                          ? Colors.white.withOpacity(0.015)
+                          : Colors.black.withOpacity(0.015),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isDark
+                            ? Colors.white.withOpacity(0.04)
+                            : Colors.black.withOpacity(0.04),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child:
-                              app.iconBytes != null && app.iconBytes!.isNotEmpty
-                              ? Image.memory(
-                                  app.iconBytes!,
-                                  width: 24,
-                                  height: 24,
-                                  fit: BoxFit.cover,
-                                )
-                              : Container(
-                                  width: 4,
-                                  height: 24,
-                                  color: associationColor,
-                                ),
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withOpacity(0.03)
+                                : Colors.black.withOpacity(0.03),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child:
+                                app.iconBytes != null &&
+                                    app.iconBytes!.isNotEmpty
+                                ? Image.memory(
+                                    app.iconBytes!,
+                                    width: 24,
+                                    height: 24,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    width: 6,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: associationColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Text(
                             app.appName,
                             style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        Text(
-                          '${app.totalForegroundTime.inHours > 0 ? "${app.totalForegroundTime.inHours}h " : ""}${app.totalForegroundTime.inMinutes.remainder(60)}m',
-                          style: const TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          '$percent%',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.3),
-                            fontSize: 12,
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '${app.totalForegroundTime.inHours > 0 ? "${app.totalForegroundTime.inHours}h " : ""}${app.totalForegroundTime.inMinutes.remainder(60)}m',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '$percent%',
+                              style: TextStyle(
+                                color: isDark ? Colors.white30 : Colors.black38,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -559,37 +721,40 @@ class _DashboardViewState extends State<DashboardView>
     );
   }
 
-  Widget _buildDynamicFocusBadge() {
+  Widget _buildDynamicFocusBadge(bool isDark) {
     double totalHours = _totalScreentime.inMinutes / 60.0;
-    Color badgeColor = const Color(0xFF10B981);
+    Color badgeColor = const Color(0xFF10B981); // Emerald
     if (totalHours > 3.0 && totalHours <= 4.0)
-      badgeColor = const Color(0xFFF59E0B);
-    if (totalHours > 4.0) badgeColor = const Color(0xFFEF4444);
+      badgeColor = const Color(0xFFF59E0B); // Amber
+    if (totalHours > 4.0) badgeColor = const Color(0xFFEF4444); // Rose
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: badgeColor.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: badgeColor.withOpacity(0.25)),
+        color: badgeColor.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: badgeColor.withOpacity(0.18)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             '$_focusScore',
             style: TextStyle(
-              fontFamily: 'JetBrains Mono',
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
               color: badgeColor,
+              letterSpacing: -0.5,
             ),
           ),
-          const Text(
-            'Focus Index',
+          const SizedBox(height: 1),
+          Text(
+            'FOCUS INDEX',
             style: TextStyle(
-              color: Colors.grey,
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
+              color: badgeColor.withOpacity(0.8),
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
             ),
           ),
         ],

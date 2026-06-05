@@ -61,7 +61,6 @@ class _BlockerViewContentState extends State<BlockerViewContent>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Force a fresh sync when coming back from Settings overlay screen
     if (state == AppLifecycleState.resumed) {
       _checkPermissionsAndSync();
     }
@@ -116,6 +115,7 @@ class _BlockerViewContentState extends State<BlockerViewContent>
             'Strict Mode cannot be disabled manually once locked! Rules reset at midnight.',
           ),
           backgroundColor: Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -125,12 +125,24 @@ class _BlockerViewContentState extends State<BlockerViewContent>
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF16161A),
-        title: const Text(
-          'Activate Strict Lock?',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.security_rounded, color: Color(0xFF8B5CF6)),
+            SizedBox(width: 10),
+            Text(
+              'Enforce Lockout?',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                fontSize: 18,
+              ),
+            ),
+          ],
         ),
         content: const Text(
-          'This will make your block list and time limits immutable for the rest of the day. You cannot alter them to access blocked apps.',
+          'This will make your block list and time limits completely unchangeable until midnight. No exceptions.',
+          style: TextStyle(color: Colors.grey, height: 1.4),
         ),
         actions: [
           TextButton(
@@ -143,7 +155,7 @@ class _BlockerViewContentState extends State<BlockerViewContent>
               foregroundColor: const Color(0xFF8B5CF6),
             ),
             child: const Text(
-              'Enforce Lockout',
+              'Confirm Lock',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
@@ -183,10 +195,9 @@ class _BlockerViewContentState extends State<BlockerViewContent>
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          '🔒 Strict Mode Active: Current focus rules are hard-locked.',
-        ),
+        content: Text('🔒 Strict Mode Active: Focus rules are hard-locked.'),
         backgroundColor: Color(0xFF8B5CF6),
+        behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: 2),
       ),
     );
@@ -204,17 +215,28 @@ class _BlockerViewContentState extends State<BlockerViewContent>
       context: context,
       backgroundColor: const Color(0xFF121214),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Padding(
-              padding: const EdgeInsets.all(24.0),
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   Text(
                     'Set Daily Limit: $appName',
                     style: const TextStyle(
@@ -223,10 +245,14 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   const Text(
-                    'Zenith will lock execution rules when tracking metrics pass this marker.',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                    'Zenith will completely block this application once daily usage crosses this value.',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 13,
+                      height: 1.3,
+                    ),
                   ),
                   const SizedBox(height: 32),
                   Row(
@@ -234,27 +260,45 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                     children: [
                       const Text(
                         'Daily Allocation:',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      Text(
-                        currentSelectedValue == 0
-                            ? 'No Limit'
-                            : '$currentSelectedValue mins',
                         style: TextStyle(
-                          fontFamily: 'JetBrains Mono',
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: currentSelectedValue == 0
+                              ? Colors.white10
+                              : const Color(0xFF8B5CF6).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          currentSelectedValue == 0
+                              ? 'No Limit'
+                              : '$currentSelectedValue mins',
+                          style: TextStyle(
+                            fontFamily: 'JetBrains Mono',
+                            color: currentSelectedValue == 0
+                                ? Colors.grey
+                                : const Color(0xFFA78BFA),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
                   Slider(
                     value: currentSelectedValue.toDouble(),
                     min: 0,
                     max: 180,
                     divisions: 12,
-                    activeColor: Theme.of(context).colorScheme.primary,
+                    activeColor: const Color(0xFF8B5CF6),
                     inactiveColor: Colors.white10,
                     onChanged: (val) {
                       HapticFeedback.selectionClick();
@@ -264,11 +308,13 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                   const SizedBox(height: 24),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      backgroundColor: const Color(0xFF8B5CF6),
+                      foregroundColor: Colors.white,
                       minimumSize: const Size(double.infinity, 52),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
+                      elevation: 0,
                     ),
                     onPressed: () async {
                       final prefs = await SharedPreferences.getInstance();
@@ -287,8 +333,11 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                       if (context.mounted) Navigator.pop(context);
                     },
                     child: const Text(
-                      'Save Allocation Rules',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                      'Save Limit Rules',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
                 ],
@@ -303,7 +352,7 @@ class _BlockerViewContentState extends State<BlockerViewContent>
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 3));
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2.5));
     }
 
     if (!_usagePermitted) {
@@ -314,7 +363,11 @@ class _BlockerViewContentState extends State<BlockerViewContent>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.lock_rounded, size: 64, color: Colors.grey),
+                const Icon(
+                  Icons.lock_outline_rounded,
+                  size: 64,
+                  color: Colors.grey,
+                ),
                 const SizedBox(height: 24),
                 Text(
                   'Usage Access Needed',
@@ -322,7 +375,7 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Zenith needs Usage Access permission to read target package metrics.',
+                  'Zenith needs Usage Access permission to track target app performance.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey, height: 1.4),
                 ),
@@ -331,7 +384,7 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size(double.infinity, 50),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                   onPressed: () => _usageService.openPermissionSettings(),
@@ -353,9 +406,10 @@ class _BlockerViewContentState extends State<BlockerViewContent>
     }).toList();
 
     return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
           sliver: SliverToBoxAdapter(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,24 +418,27 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                   'Focus Blocker',
                   style: Theme.of(context).textTheme.headlineLarge,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text(
-                  'Enforce strict rules over addictive applications.',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  'Take absolute control over attention-grabbing targets.',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(color: Colors.grey),
                 ),
                 const SizedBox(height: 24),
 
+                // Strict Mode Card
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: _isStrictModeActive
-                        ? const Color(0xFF8B5CF6).withOpacity(0.08)
+                        ? const Color(0xFF8B5CF6).withOpacity(0.06)
                         : Theme.of(context).colorScheme.surface,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: _isStrictModeActive
-                          ? const Color(0xFF8B5CF6).withOpacity(0.3)
-                          : Colors.white.withOpacity(0.02),
+                          ? const Color(0xFF8B5CF6).withOpacity(0.25)
+                          : Colors.white.withOpacity(0.03),
                     ),
                   ),
                   child: Row(
@@ -391,11 +448,11 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                             ? Icons.lock_rounded
                             : Icons.lock_open_rounded,
                         color: _isStrictModeActive
-                            ? const Color(0xFF8B5CF6)
+                            ? const Color(0xFFA78BFA)
                             : Colors.grey,
-                        size: 24,
+                        size: 22,
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -405,14 +462,14 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
-                                fontSize: 15,
+                                fontSize: 14,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 3),
                             Text(
                               _isStrictModeActive
-                                  ? 'Handcuffs locked. Focus rules are immutable.'
-                                  : 'Freeze adjustments until the day resets.',
+                                  ? 'Configuration locked until midnight.'
+                                  : 'Freeze changes to maintain discipline.',
                               style: const TextStyle(
                                 color: Colors.grey,
                                 fontSize: 12,
@@ -429,26 +486,27 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
                 if (!_overlayPermitted)
                   Container(
-                    margin: const EdgeInsets.only(bottom: 20),
+                    margin: const EdgeInsets.only(bottom: 16),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEF4444).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      color: const Color(0xFFEF4444).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: const Color(0xFFEF4444).withOpacity(0.2),
                       ),
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'System Overlay permission is mandatory to display the shield blocks over apps.',
+                          'System Overlay permission is required to display the block screen shields directly over running apps.',
                           style: TextStyle(
                             color: Colors.grey,
-                            fontSize: 13,
+                            fontSize: 12,
                             height: 1.4,
                           ),
                         ),
@@ -456,16 +514,27 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFEF4444),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 40),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
                           ),
-                          onPressed: () async {
-                            await _usageService.openOverlaySettings();
-                          },
-                          child: const Text('Grant Overlay Permission'),
+                          onPressed: () => _usageService.openOverlaySettings(),
+                          child: const Text(
+                            'Grant Overlay Permission',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
 
+                // Premium Search Field
                 TextField(
                   controller: _searchController,
                   style: const TextStyle(fontSize: 14, color: Colors.white),
@@ -478,24 +547,35 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                     prefixIcon: const Icon(
                       Icons.search_rounded,
                       color: Colors.grey,
-                      size: 20,
+                      size: 18,
                     ),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
                             icon: const Icon(
                               Icons.clear_rounded,
                               color: Colors.grey,
-                              size: 18,
+                              size: 16,
                             ),
                             onPressed: () => _searchController.clear(),
                           )
                         : null,
                     filled: true,
                     fillColor: Theme.of(context).colorScheme.surface,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(
+                        color: Colors.white.withOpacity(0.08),
+                        width: 1,
+                      ),
                     ),
                   ),
                 ),
@@ -505,15 +585,15 @@ class _BlockerViewContentState extends State<BlockerViewContent>
         ),
 
         SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
           sliver: filteredApps.isEmpty
               ? const SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
+                    padding: EdgeInsets.symmetric(vertical: 48),
                     child: Center(
                       child: Text(
-                        'No matching applications found.',
-                        style: TextStyle(color: Colors.grey, fontSize: 14),
+                        'No applications match your query.',
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
                       ),
                     ),
                   ),
@@ -526,31 +606,75 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                     );
                     final int? activeLimit = _appLimitsMinutes[app.packageName];
 
+                    // Dynamic highlights for lists
+                    Color dynamicItemBorder = Colors.white.withOpacity(0.01);
+                    Color dynamicBackground = Theme.of(
+                      context,
+                    ).colorScheme.surface;
+                    if (isBlocked) {
+                      dynamicItemBorder = const Color(
+                        0xFFEF4444,
+                      ).withOpacity(0.15);
+                      dynamicBackground = const Color(
+                        0xFFEF4444,
+                      ).withOpacity(0.02);
+                    } else if (activeLimit != null) {
+                      dynamicItemBorder = const Color(
+                        0xFF8B5CF6,
+                      ).withOpacity(0.15);
+                      dynamicBackground = const Color(
+                        0xFF8B5CF6,
+                      ).withOpacity(0.02);
+                    }
+
                     return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(14),
+                        color: dynamicBackground,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: dynamicItemBorder, width: 1),
                       ),
                       child: Row(
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child:
-                                app.iconBytes != null &&
-                                    app.iconBytes!.isNotEmpty
-                                ? Image.memory(
-                                    app.iconBytes!,
-                                    width: 36,
-                                    height: 36,
-                                    fit: BoxFit.cover,
-                                  )
-                                : const Icon(Icons.android, size: 36),
+                          // Beautiful bounding boxes for app icons
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.03),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child:
+                                  app.iconBytes != null &&
+                                      app.iconBytes!.isNotEmpty
+                                  ? Padding(
+                                      padding: const EdgeInsets.all(6.0),
+                                      child: Image.memory(
+                                        app.iconBytes!,
+                                        fit: BoxFit.contain,
+                                      ),
+                                    )
+                                  : Center(
+                                      child: Text(
+                                        app.appName.isNotEmpty
+                                            ? app.appName[0].toUpperCase()
+                                            : 'A',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                            ),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
                             child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
                               onTap: () => _showLimitPicker(
                                 app.packageName,
                                 app.appName,
@@ -562,20 +686,20 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                                     app.appName,
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: Colors.white,
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: 3),
                                   Text(
                                     activeLimit == null
-                                        ? 'Tap to set daily allowance'
-                                        : '⏰ Cap: $activeLimit mins/day',
+                                        ? 'Set daily limit allowance'
+                                        : '⏰ Limit: $activeLimit mins',
                                     style: TextStyle(
                                       color: activeLimit == null
                                           ? Colors.grey
-                                          : Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
+                                          : const Color(0xFFA78BFA),
                                       fontSize: 11,
                                       fontWeight: activeLimit == null
                                           ? FontWeight.normal
@@ -588,10 +712,11 @@ class _BlockerViewContentState extends State<BlockerViewContent>
                           ),
                           IconButton(
                             icon: Icon(
-                              Icons.av_timer_rounded,
+                              Icons.alarm_add_rounded,
                               color: activeLimit != null
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Colors.grey,
+                                  ? const Color(0xFF8B5CF6)
+                                  : Colors.white38,
+                              size: 20,
                             ),
                             onPressed: () =>
                                 _showLimitPicker(app.packageName, app.appName),
